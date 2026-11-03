@@ -80,20 +80,44 @@ function renderTemplate(
   );
 }
 
+function splitSingleField(value: string) {
+  const horizontalRuleParts = value.split(/<hr\b[^>]*\/?>/i);
+  if (horizontalRuleParts.length > 1) {
+    return {
+      question: cleanHtml(horizontalRuleParts[0]),
+      answer: cleanHtml(horizontalRuleParts.slice(1).join("\n")),
+    };
+  }
+  const labeled = value.match(
+    /^\s*(?:question|front|prompt)\s*:\s*([\s\S]*?)\s*(?:\n+|<br\s*\/?>)\s*(?:answer|back|response)\s*:\s*([\s\S]*)$/i,
+  );
+  if (labeled) {
+    return { question: cleanHtml(labeled[1]), answer: cleanHtml(labeled[2]) };
+  }
+  return { question: "", answer: "" };
+}
+
 function parseCloze(value: string, cardOrdinal: number) {
   const clozePattern = /{{c(\d+)::([\s\S]*?)(?:::[\s\S]*?)?}}/gi;
-  const answers: string[] = [];
-  const question = value.replace(clozePattern, (match, index: string, answer: string) => {
-    if (Number(index) === cardOrdinal + 1) {
-      answers.push(cleanHtml(answer.split("::", 1)[0]));
-      return "[...]";
-    }
-    return answer.split("::", 1)[0];
-  });
+  const matches = [...value.matchAll(clozePattern)];
+  const selected = matches.find((match) => Number(match[1]) === cardOrdinal + 1) ?? matches[0];
+  if (!selected || selected.index === undefined) return { question: "", answer: "" };
+  const selectedAnswer = cleanHtml(selected[2].split("::", 1)[0]);
+  const question = value.replace(clozePattern, (match, _index: string, answer: string, offset: number) =>
+    offset === selected.index
+      ? "[...]"
+      : answer.split("::", 1)[0],
+  );
   return {
     question: cleanHtml(question),
-    answer: answers.join("; "),
+    answer: selectedAnswer,
   };
+}
+
+function sqliteText(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value instanceof Uint8Array) return new TextDecoder().decode(value);
+  return null;
 }
 
 function parseJsonObject<T>(value: string | null | undefined): Record<string, T> {
@@ -194,11 +218,25 @@ export async function POST(request: Request) {
 
     const cards: Flashcard[] = [];
     const importedDeckNames = new Set<string>();
+    let rowsWithoutFields = 0;
+    let rowsWithoutAnswers = 0;
+    let diagnostic: {
+      modelId: string;
+      modelType: number | null;
+      fieldNames: string[];
+      populatedFields: number;
+      questionTemplateFields: string[];
+      answerTemplateFields: string[];
+    } | null = null;
     for (const row of rows) {
       const [, modelIdValue, fieldsValue, ordinalValue, deckIdValue] = row;
-      if (typeof modelIdValue !== "number" || typeof fieldsValue !== "string") continue;
+      const fieldText = sqliteText(fieldsValue);
+      if ((typeof modelIdValue !== "number" && typeof modelIdValue !== "string") || fieldText === null) {
+        rowsWithoutFields += 1;
+        continue;
+      }
       const model = models[String(modelIdValue)];
-      const fields = fieldsValue.split("\u001f");
+      const fields = fieldText.split("\u001f");
       const ordinal = typeof ordinalValue === "number" ? ordinalValue : 0;
       if (typeof deckIdValue === "number") {
         const deckName = decks[String(deckIdValue)]?.name;
@@ -218,11 +256,20 @@ export async function POST(request: Request) {
         ]),
       );
       const clozeField = fields.find((field) => /{{c\d+::/i.test(field));
+      const questionTemplate = model?.tmpls?.[ordinal]?.qfmt ?? "";
+      const answerTemplate = model?.tmpls?.[ordinal]?.afmt ?? "";
+      diagnostic ??= {
+        modelId: String(modelIdValue),
+        modelType: typeof model?.type === "number" ? model.type : null,
+        fieldNames: orderedFields.map((field) => field.name ?? ""),
+        populatedFields: fields.filter((field) => cleanHtml(field)).length,
+        questionTemplateFields: fieldReferences(questionTemplate),
+        answerTemplateFields: fieldReferences(answerTemplate),
+      };
       if (clozeField) {
         ({ question, answer } = parseCloze(clozeField, ordinal));
       } else {
-        const template = model?.tmpls?.[ordinal]?.qfmt ?? "";
-        const answerTemplate = model?.tmpls?.[ordinal]?.afmt ?? "";
+        const template = questionTemplate;
         const references = fieldReferences(template);
         const frontField = references
           .map((name) => fieldValues.get(name.toLocaleLowerCase()) ?? "")
@@ -242,22 +289,6 @@ export async function POST(request: Request) {
           answer = renderTemplate(answerTemplate, fieldValues, question);
         }
 
-        if (!question || !answer) {
-          const nonEmptyFields = fields
-            .map((value, index) => ({ index, value: cleanHtml(value) }))
-            .filter((field) => field.value);
-          const frontFieldIndex = references.length
-            ? orderedFields.findIndex((field) =>
-                field.name?.toLocaleLowerCase() === references[0].toLocaleLowerCase(),
-              )
-            : -1;
-          const frontIndex = frontFieldIndex >= 0
-            ? frontFieldIndex
-            : nonEmptyFields[0]?.index ?? 0;
-          const backIndex = nonEmptyFields.find((field) => field.index !== frontIndex)?.index;
-          question ||= cleanHtml(fields[frontIndex] ?? "");
-          answer ||= backIndex === undefined ? "" : cleanHtml(fields[backIndex] ?? "");
-        }
       }
       if (!question || !answer) {
         const preferredFront = /^(front|question|prompt|word|term|kana|kanji|expression|sentence)$/i;
@@ -275,11 +306,21 @@ export async function POST(request: Request) {
             field.value !== question,
         )?.value ?? "";
         const firstValue = namedFields.find((field) => field.value !== answer)?.value ?? "";
-        const secondValue = namedFields.find((field) => field.value !== firstValue)?.value ?? "";
         question ||= firstValue;
-        answer ||= secondValue;
+        answer ||= namedFields
+          .filter((field) => field.value !== firstValue)
+          .map((field) => field.value)
+          .join("\n");
+        if (!answer && firstValue) {
+          const parsed = splitSingleField(fields.find((field) => cleanHtml(field)) ?? "");
+          question ||= parsed.question;
+          answer ||= parsed.answer;
+        }
       }
-      if (!question || !answer) continue;
+      if (!question || !answer) {
+        rowsWithoutAnswers += 1;
+        continue;
+      }
       cards.push({
         question,
         answer,
@@ -293,8 +334,11 @@ export async function POST(request: Request) {
       }
     }
     if (!cards.length) {
+      const details = diagnostic
+        ? ` Note type: ${diagnostic.modelType ?? "unknown"}; fields: ${diagnostic.fieldNames.join(", ") || "not named"}; populated fields: ${diagnostic.populatedFields}; front template fields: ${diagnostic.questionTemplateFields.join(", ") || "none"}; back template fields: ${diagnostic.answerTemplateFields.join(", ") || "none"}.`
+        : "";
       return Response.json({
-        error: "No supported question-and-answer cards were found. Check that the package contains Basic or Cloze note types.",
+        error: `Found ${rows.length} Anki card entries, but none contained both a readable question and answer (${rowsWithoutFields} entries had unsupported field data; ${rowsWithoutAnswers} were missing a question or answer).${details} Please send this diagnostic with your next message.`,
       }, { status: 400 });
     }
 
