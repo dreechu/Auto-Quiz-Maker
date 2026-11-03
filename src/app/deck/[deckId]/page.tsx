@@ -459,7 +459,7 @@ function StudyDeck() {
         {allCards.length > 0 && (
           <section
             aria-label="Study rhythm timer"
-            className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-indigo-100 bg-indigo-50/50 px-4 py-3.5 sm:px-5"
+            className="mt-5 flex min-w-0 flex-col items-stretch gap-3 overflow-hidden rounded-2xl border border-indigo-100 bg-indigo-50/50 px-3 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5"
           >
             <div className="flex min-w-0 items-center gap-3">
               <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-indigo-600 shadow-sm">
@@ -488,8 +488,8 @@ function StudyDeck() {
                 </p>
               </div>
             </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <label className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 text-[10px] font-medium text-slate-500">
+            <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 sm:w-auto sm:flex sm:flex-wrap">
+              <label className="flex h-9 w-full min-w-0 items-center justify-between gap-1.5 rounded-xl border border-slate-200 bg-white px-2 text-[10px] font-medium text-slate-500 sm:w-auto sm:gap-2 sm:px-2.5">
                 Focus
                 <input
                   type="number"
@@ -500,11 +500,11 @@ function StudyDeck() {
                   onChange={(event) => setFocusMinutes(Number(event.target.value))}
                   disabled={studyRhythm === "focus" || studyRhythm === "break"}
                   aria-label="Focus duration in minutes"
-                  className="w-14 border-0 bg-transparent p-0 text-center text-xs font-semibold text-slate-700 outline-none focus:ring-0 disabled:opacity-60"
+                  className="w-10 min-w-0 border-0 bg-transparent p-0 text-center text-xs font-semibold text-slate-700 outline-none focus:ring-0 disabled:opacity-60 sm:w-14"
                 />
                 min
               </label>
-              <label className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 text-[10px] font-medium text-slate-500">
+              <label className="flex h-9 w-full min-w-0 items-center justify-between gap-1.5 rounded-xl border border-slate-200 bg-white px-2 text-[10px] font-medium text-slate-500 sm:w-auto sm:gap-2 sm:px-2.5">
                 Break
                 <input
                   type="number"
@@ -515,54 +515,54 @@ function StudyDeck() {
                   onChange={(event) => setBreakMinutes(Number(event.target.value))}
                   disabled={studyRhythm === "focus" || studyRhythm === "break"}
                   aria-label="Break duration in minutes"
-                  className="w-14 border-0 bg-transparent p-0 text-center text-xs font-semibold text-slate-700 outline-none focus:ring-0 disabled:opacity-60"
+                  className="w-10 min-w-0 border-0 bg-transparent p-0 text-center text-xs font-semibold text-slate-700 outline-none focus:ring-0 disabled:opacity-60 sm:w-14"
                 />
                 min
               </label>
               {studyRhythm === "idle" && (
                 <>
-                  <button type="button" onClick={startFocus} disabled={!focusDurationValid} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-indigo-600 px-3 text-[11px] font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
-                    <Play size={14} />
-                    Start focus
+                  <button type="button" onClick={startFocus} disabled={!focusDurationValid} className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-xl bg-indigo-600 px-2 text-[10px] font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:gap-1.5 sm:px-3 sm:text-[11px]">
+                    <Play size={14} className="shrink-0" />
+                    <span className="truncate">Start focus</span>
                   </button>
-                  <button type="button" onClick={startBreak} disabled={!breakDurationValid} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
-                    <Coffee size={14} />
-                    Take a break
+                  <button type="button" onClick={startBreak} disabled={!breakDurationValid} className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-xl border border-slate-200 bg-white px-2 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:gap-1.5 sm:px-3 sm:text-[11px]">
+                    <Coffee size={14} className="shrink-0" />
+                    <span className="truncate">Take a break</span>
                   </button>
                 </>
               )}
               {studyRhythm === "focus" && (
                 <>
-                  <button type="button" onClick={pauseFocus} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50">
-                    <Pause size={14} />
-                    Pause
+                  <button type="button" onClick={pauseFocus} className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-xl border border-slate-200 bg-white px-2 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-50 sm:w-auto sm:gap-1.5 sm:px-3 sm:text-[11px]">
+                    <Pause size={14} className="shrink-0" />
+                    <span className="truncate">Pause</span>
                   </button>
-                  <button type="button" onClick={startBreak} disabled={!breakDurationValid} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
-                    <Coffee size={14} />
-                    Break now
+                  <button type="button" onClick={startBreak} disabled={!breakDurationValid} className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-xl border border-slate-200 bg-white px-2 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:gap-1.5 sm:px-3 sm:text-[11px]">
+                    <Coffee size={14} className="shrink-0" />
+                    <span className="truncate">Break now</span>
                   </button>
                 </>
               )}
               {studyRhythm === "paused" && (
                 <>
-                  <button type="button" onClick={resumeFocus} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-indigo-600 px-3 text-[11px] font-semibold text-white transition hover:bg-indigo-700">
-                    <Play size={14} />
-                    Resume
+                  <button type="button" onClick={resumeFocus} className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-xl bg-indigo-600 px-2 text-[10px] font-semibold text-white transition hover:bg-indigo-700 sm:w-auto sm:gap-1.5 sm:px-3 sm:text-[11px]">
+                    <Play size={14} className="shrink-0" />
+                    <span className="truncate">Resume</span>
                   </button>
-                  <button type="button" onClick={startBreak} disabled={!breakDurationValid} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
-                    <Coffee size={14} />
-                    Take a break
+                  <button type="button" onClick={startBreak} disabled={!breakDurationValid} className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-xl border border-slate-200 bg-white px-2 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:gap-1.5 sm:px-3 sm:text-[11px]">
+                    <Coffee size={14} className="shrink-0" />
+                    <span className="truncate">Take a break</span>
                   </button>
                 </>
               )}
               {studyRhythm === "break-done" && (
-                <button type="button" onClick={startFocus} disabled={!focusDurationValid} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-indigo-600 px-3 text-[11px] font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
-                  <Play size={14} />
-                  Start another focus
+                <button type="button" onClick={startFocus} disabled={!focusDurationValid} className="col-span-2 inline-flex h-9 w-full min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-xl bg-indigo-600 px-2 text-[10px] font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-1 sm:w-auto sm:gap-1.5 sm:px-3 sm:text-[11px]">
+                  <Play size={14} className="shrink-0" />
+                  <span className="truncate">Start another focus</span>
                 </button>
               )}
               {(!focusDurationValid || !breakDurationValid) && (
-                <p className="basis-full text-right text-[10px] text-rose-600">
+                <p className="col-span-2 text-right text-[10px] text-rose-600">
                   Focus: 1–{MAX_FOCUS_MINUTES} min; break: 1–{MAX_BREAK_MINUTES} min.
                 </p>
               )}
