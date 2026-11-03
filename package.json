@@ -9,15 +9,27 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@google/genai": "^2.32.0",
+    "firebase": "^11.10.0",
+    "firebase-admin": "^14.5.0",
+    "framer-motion": "^14.9.0",
+    "jszip": "^3.10.2",
+    "lucide-react": "^1.67.0",
+    "mammoth": "^1.13.0",
     "next": "16.4.4",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "sql.js": "^1.15.2"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/sql.js": "^1.4.11",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.4",
-    "tailwindcss": "^4"
+    "tailwindcss": "^4",
+    "typescript": "^6.0.3"
   }
 }
