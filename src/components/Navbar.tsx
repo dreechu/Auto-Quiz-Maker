@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Compass, Command, Plus, Shield } from "lucide-react";
+import { Compass, Command, NotebookPen, Shield } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -30,6 +30,15 @@ export function Navbar() {
 
         <div className="flex items-center gap-2.5 sm:gap-4">
           <ThemeToggle />
+          <Link
+            href="/notes"
+            aria-label="Create AI study notes"
+            title="Create AI study notes"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700 sm:px-2.5"
+          >
+            <NotebookPen size={15} />
+            <span className="hidden sm:inline">Notes</span>
+          </Link>
           <Link
             href="/discover"
             aria-label="Discover public decks"

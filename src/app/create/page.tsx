@@ -25,7 +25,9 @@ import {
 } from "lucide-react";
 import { AuthGate } from "@/components/AuthGate";
 import { Navbar } from "@/components/Navbar";
+import { TaskProgress } from "@/components/TaskProgress";
 import { useAuth } from "@/context/AuthContext";
+import { MAX_UPLOAD_BYTES } from "@/lib/api-limits";
 import { createDeck } from "@/lib/db";
 import { processFile, processNotes, type ProcessedSource } from "@/lib/fileProcessors";
 import type {
@@ -36,8 +38,8 @@ import type {
   SourceType,
 } from "@/lib/flashcards";
 
-const MAX_FILE_BYTES = 12 * 1024 * 1024;
-const MAX_ANKI_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_FILE_BYTES = MAX_UPLOAD_BYTES;
+const MAX_ANKI_FILE_BYTES = MAX_UPLOAD_BYTES;
 const ACCEPTED = ".png,.jpg,.jpeg,.webp,.pdf,.docx,.pptx,.txt,.md,.apkg";
 const REVIEW_PAGE_SIZE = 5;
 const STUDY_STYLES = [
@@ -46,10 +48,16 @@ const STUDY_STYLES = [
   { value: "exam", label: "Exam Prep" },
 ] as const;
 const PROGRESS_STEPS = [
-  "Compressing & reading your file...",
-  "AI is analyzing key concepts...",
-  "Formatting flashcards...",
+  "Reading and preparing your material",
+  "AI is analyzing key concepts",
+  "Organizing and checking your flashcards",
 ];
+const ANKI_PROGRESS_STEPS = [
+  "Reading your Anki package",
+  "Extracting cards and answers",
+  "Preparing your review",
+];
+const SAVE_PROGRESS_STEPS = ["Preparing your deck", "Saving your cards"];
 type StudyStyle = (typeof STUDY_STYLES)[number]["value"];
 type ReviewCard = Flashcard & { id: string };
 type GenerationResult = {
@@ -74,6 +82,7 @@ function CreateDeckForm() {
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [generating, setGenerating] = useState(false);
   const [progressStep, setProgressStep] = useState(0);
+  const [saveProgressStep, setSaveProgressStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [review, setReview] = useState<GenerationResult | null>(null);
@@ -108,7 +117,7 @@ function CreateDeckForm() {
     }
     const isAnki = extension === "apkg";
     if (nextFile.size > (isAnki ? MAX_ANKI_FILE_BYTES : MAX_FILE_BYTES)) {
-      setError(`That file is over ${isAnki ? "25" : "12"} MB. Try a smaller file.`);
+      setError("That file is over 200 MB. Try a smaller file.");
       return;
     }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -312,8 +321,14 @@ function CreateDeckForm() {
       return;
     }
     setSaving(true);
+    setSaveProgressStep(0);
     setError("");
+    let saveProgressTimer: number | undefined;
     try {
+      saveProgressTimer = window.setInterval(
+        () => setSaveProgressStep(1),
+        1800,
+      );
       const now = Date.now();
       const deckCards = Object.fromEntries(
         cleanCards.map(({ id, ...card }) => [id, { ...card, status: "new" as const }]),
@@ -339,6 +354,8 @@ function CreateDeckForm() {
           : "Your deck couldn’t be saved. Check your connection and try again.",
       );
       setSaving(false);
+    } finally {
+      if (saveProgressTimer) window.clearInterval(saveProgressTimer);
     }
   }
 
@@ -426,7 +443,7 @@ function CreateDeckForm() {
                           Drop your file here, or{" "}
                           <button type="button" onClick={() => inputRef.current?.click()} className="text-indigo-600 underline decoration-indigo-200 underline-offset-4">browse</button>
                         </p>
-                        <p className="mt-2 text-xs text-slate-400">PNG, JPG, WEBP, PDF, DOCX, PPTX, TXT · 12 MB · Anki APKG · 25 MB</p>
+                        <p className="mt-2 text-xs text-slate-400">PNG, JPG, WEBP, PDF, DOCX, PPTX, TXT, Anki APKG · 200 MB</p>
                       </div>
                     )}
                     {isAnkiPackage && (
@@ -467,18 +484,11 @@ function CreateDeckForm() {
                 </>}
 
                 {generating ? (
-                  <div className="mt-6 space-y-3 rounded-xl bg-slate-50 p-4" aria-live="polite">
-                    {(isAnkiPackage
-                      ? ["Reading Anki package...", "Extracting cards...", "Preparing your review..."]
-                      : PROGRESS_STEPS
-                    ).map((step, index) => (
-                      <div key={step} className="flex items-center gap-3 text-xs">
-                        <span className={`grid size-5 place-items-center rounded-full ${index < progressStep ? "bg-emerald-100 text-emerald-600" : index === progressStep ? "bg-indigo-100 text-indigo-600" : "bg-slate-200 text-slate-400"}`}>
-                          {index < progressStep ? <Check size={12} /> : index === progressStep ? <LoaderCircle size={12} className="animate-spin" /> : index + 1}
-                        </span>
-                        <span className={index === progressStep ? "font-semibold text-slate-700" : "text-slate-400"}>{step}</span>
-                      </div>
-                    ))}
+                  <div className="mt-6">
+                    <TaskProgress
+                      steps={isAnkiPackage ? ANKI_PROGRESS_STEPS : PROGRESS_STEPS}
+                      activeStep={progressStep}
+                    />
                   </div>
                 ) : (
                   <button type="submit" className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700">
@@ -617,7 +627,13 @@ function CreateDeckForm() {
           <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
             <div>
               <p className="text-sm font-semibold text-slate-800">{cards.length} {cards.length === 1 ? "card" : "cards"}</p>
-              <p className="hidden text-[10px] text-slate-400 sm:block">Ready when you are</p>
+              {saving ? (
+                <div className="mt-2 w-56 max-w-[48vw]">
+                  <TaskProgress steps={SAVE_PROGRESS_STEPS} activeStep={saveProgressStep} />
+                </div>
+              ) : (
+                <p className="hidden text-[10px] text-slate-400 sm:block">Ready when you are</p>
+              )}
             </div>
             <button type="button" onClick={handleSave} disabled={saving || !cards.length} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 sm:px-5 sm:text-sm">
               {saving ? <LoaderCircle size={16} className="animate-spin" /> : <Sparkles size={15} />}

@@ -1,4 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
+import {
+  GENERATION_MAX_CARDS_PER_BATCH,
+  GENERATION_MAX_TEXT_CHARS,
+  GENERATION_REQUEST_BODY_MULTIPLIER,
+  MAX_UPLOAD_BYTES,
+} from "@/lib/api-limits";
 import type {
   CardFormat,
   Difficulty,
@@ -13,8 +19,6 @@ import {
   verifyRequestUser,
 } from "@/lib/server-auth";
 
-const MAX_FILE_BYTES = 12 * 1024 * 1024;
-const MAX_CARDS_PER_BATCH = 30;
 const allowedTypes: Record<string, SourceType> = {
   "image/jpeg": "image",
   "image/png": "image",
@@ -27,7 +31,11 @@ const allowedTypes: Record<string, SourceType> = {
 };
 
 function validateCards(value: unknown, generationFormat: GenerationFormat): Flashcard[] {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 30) {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > GENERATION_MAX_CARDS_PER_BATCH
+  ) {
     throw new Error("The generated card list was empty or too large.");
   }
   return value.map((item, index) => {
@@ -74,8 +82,8 @@ function getGeminiStatus(error: unknown): number | undefined {
 
 export async function POST(request: Request) {
   const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (contentLength > MAX_FILE_BYTES * 1.5) {
-    return Response.json({ error: "Please choose a file smaller than 12 MB." }, { status: 413 });
+  if (contentLength > MAX_UPLOAD_BYTES * GENERATION_REQUEST_BODY_MULTIPLIER) {
+    return Response.json({ error: "Please choose a file smaller than 200 MB." }, { status: 413 });
   }
 
   const identity = await verifyRequestUser(request);
@@ -137,16 +145,16 @@ export async function POST(request: Request) {
     if ((sourceType === "image" || sourceType === "pdf") && !data) {
       return Response.json({ error: "The uploaded file could not be read." }, { status: 400 });
     }
-    if (data.length > Math.ceil((MAX_FILE_BYTES * 4) / 3)) {
-      return Response.json({ error: "Please choose a file smaller than 12 MB." }, { status: 413 });
+    if (data.length > Math.ceil((MAX_UPLOAD_BYTES * 4) / 3)) {
+      return Response.json({ error: "Please choose a file smaller than 200 MB." }, { status: 413 });
     }
-    if (data && Buffer.from(data, "base64").length > MAX_FILE_BYTES) {
-      return Response.json({ error: "Please choose a file smaller than 12 MB." }, { status: 413 });
+    if (data && Buffer.from(data, "base64").length > MAX_UPLOAD_BYTES) {
+      return Response.json({ error: "Please choose a file smaller than 200 MB." }, { status: 413 });
     }
     if (!text && sourceType !== "image" && sourceType !== "pdf") {
       return Response.json({ error: "No readable text was found in that file." }, { status: 422 });
     }
-    if (text.length > 100_000) {
+    if (text.length > GENERATION_MAX_TEXT_CHARS) {
       return Response.json({ error: "That document has too much text to process at once." }, { status: 413 });
     }
 
@@ -205,12 +213,12 @@ export async function POST(request: Request) {
     const cards: Flashcard[] = [];
     let suggestedTitle = "";
     let summary = "";
-    const totalBatches = Math.ceil(count / MAX_CARDS_PER_BATCH);
+    const totalBatches = Math.ceil(count / GENERATION_MAX_CARDS_PER_BATCH);
     let remainingCards = count;
     let batchNumber = 0;
     while (remainingCards > 0) {
       batchNumber += 1;
-      const batchCount = Math.min(MAX_CARDS_PER_BATCH, remainingCards);
+      const batchCount = Math.min(GENERATION_MAX_CARDS_PER_BATCH, remainingCards);
       const previouslyAsked = cards
         .slice(-40)
         .map((card) => card.question.slice(0, 240))

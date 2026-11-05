@@ -2,13 +2,15 @@ import { join } from "node:path";
 import initSqlJs from "sql.js";
 import JSZip from "jszip";
 import { verifyRequestUser } from "@/lib/server-auth";
+import {
+  ANKI_MAX_ARCHIVE_BYTES,
+  ANKI_MAX_ARCHIVE_ENTRIES,
+  ANKI_MAX_CARDS,
+  ANKI_MAX_DATABASE_BYTES,
+  MAX_UPLOAD_BYTES,
+} from "@/lib/api-limits";
 import type { Flashcard } from "@/lib/flashcards";
 
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-const MAX_DATABASE_BYTES = 80 * 1024 * 1024;
-const MAX_ARCHIVE_BYTES = 120 * 1024 * 1024;
-const MAX_ARCHIVE_ENTRIES = 10_000;
-const MAX_CARDS = 5_000;
 const DEFAULT_DECK_NAME = "Anki import";
 
 type AnkiModel = {
@@ -147,7 +149,7 @@ export async function POST(request: Request) {
 
   const contentLength = Number(request.headers.get("content-length") || 0);
   if (contentLength > MAX_UPLOAD_BYTES + 1024 * 1024) {
-    return Response.json({ error: "Anki packages must be 25 MB or smaller." }, { status: 413 });
+    return Response.json({ error: "Anki packages must be 200 MB or smaller." }, { status: 413 });
   }
 
   let database: InstanceType<Awaited<ReturnType<typeof initSqlJs>>["Database"]> | null = null;
@@ -158,7 +160,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Choose an Anki .apkg package to import." }, { status: 400 });
     }
     if (upload.size === 0 || upload.size > MAX_UPLOAD_BYTES) {
-      return Response.json({ error: "Anki packages must be between 1 byte and 25 MB." }, { status: 413 });
+      return Response.json({ error: "Anki packages must be between 1 byte and 200 MB." }, { status: 413 });
     }
 
     const archive = await JSZip.loadAsync(await upload.arrayBuffer(), {
@@ -166,7 +168,7 @@ export async function POST(request: Request) {
       createFolders: false,
     });
     const entries = Object.values(archive.files).filter((entry) => !entry.dir);
-    if (entries.length > MAX_ARCHIVE_ENTRIES) {
+    if (entries.length > ANKI_MAX_ARCHIVE_ENTRIES) {
       return Response.json({ error: "This Anki package contains too many files to import safely." }, { status: 413 });
     }
     let totalExpandedBytes = 0;
@@ -176,7 +178,7 @@ export async function POST(request: Request) {
         return Response.json({ error: "This Anki package has invalid archive metadata." }, { status: 400 });
       }
       totalExpandedBytes += size;
-      if (totalExpandedBytes > MAX_ARCHIVE_BYTES) {
+      if (totalExpandedBytes > ANKI_MAX_ARCHIVE_BYTES) {
         return Response.json({ error: "This Anki package expands beyond the 120 MB import limit." }, { status: 413 });
       }
     }
@@ -188,7 +190,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "No supported Anki collection database was found in this .apkg file." }, { status: 400 });
     }
     const databaseSize = validZipEntrySize(databaseEntry);
-    if (typeof databaseSize !== "number" || databaseSize > MAX_DATABASE_BYTES) {
+    if (typeof databaseSize !== "number" || databaseSize > ANKI_MAX_DATABASE_BYTES) {
       return Response.json({ error: "The Anki collection database exceeds the 80 MB import limit." }, { status: 413 });
     }
 
@@ -212,7 +214,7 @@ export async function POST(request: Request) {
     if (!rows.length) {
       return Response.json({ error: "This Anki package doesn’t contain any study cards." }, { status: 400 });
     }
-    if (rows.length > MAX_CARDS * 20) {
+    if (rows.length > ANKI_MAX_CARDS * 20) {
       return Response.json({ error: "This Anki package has too many card templates to import safely." }, { status: 413 });
     }
 
@@ -329,8 +331,8 @@ export async function POST(request: Request) {
         status: "new",
         format: answer.includes("\n") ? "enumeration" : "identification",
       });
-      if (cards.length > MAX_CARDS) {
-        return Response.json({ error: `Import up to ${MAX_CARDS.toLocaleString()} cards at a time.` }, { status: 413 });
+      if (cards.length > ANKI_MAX_CARDS) {
+        return Response.json({ error: `Import up to ${ANKI_MAX_CARDS.toLocaleString()} cards at a time.` }, { status: 413 });
       }
     }
     if (!cards.length) {

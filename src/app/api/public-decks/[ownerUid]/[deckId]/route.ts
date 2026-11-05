@@ -21,7 +21,7 @@ export async function GET(
       database.ref(`publicDecks/${ownerUid}_${deckId}`).get(),
       database.ref(`decks/${ownerUid}/${deckId}`).get(),
     ]);
-    if (!indexSnapshot.exists() || !deckSnapshot.exists()) {
+    if (!deckSnapshot.exists()) {
       return Response.json({ error: "This deck is not public or no longer exists." }, { status: 404 });
     }
     const deck = deckSnapshot.val() as Deck;

@@ -6,6 +6,7 @@ import {
 } from "firebase/database";
 import { auth, database } from "@/lib/firebase";
 import type { Deck, Flashcard, ReviewRating } from "@/lib/flashcards";
+import type { StudyNote } from "@/lib/notes";
 
 function requireDatabase() {
   if (!database) {
@@ -38,6 +39,47 @@ async function authenticatedRequest<T = { error?: string; deckId?: string }>(
 }
 
 export type DeckWithId = Deck & { id: string };
+export type SavedNote = StudyNote;
+
+export async function getNotes(uid: string): Promise<SavedNote[]> {
+  if (!auth?.currentUser || auth.currentUser.uid !== uid) {
+    throw new Error("Please sign in again to view your notes.");
+  }
+  const result = await authenticatedRequest<{ notes: SavedNote[] }>("/api/notes", "GET");
+  return result.notes;
+}
+
+export async function renameNote(uid: string, noteId: string, title: string) {
+  if (!auth?.currentUser || auth.currentUser.uid !== uid) {
+    throw new Error("Please sign in again before renaming this note.");
+  }
+  return authenticatedRequest<{ note: SavedNote }>(
+    `/api/notes/${encodeURIComponent(noteId)}`,
+    "PATCH",
+    { title },
+  );
+}
+
+export async function setNotePublic(uid: string, noteId: string, isPublic: boolean) {
+  if (!auth?.currentUser || auth.currentUser.uid !== uid) {
+    throw new Error("Please sign in again before changing this note’s sharing settings.");
+  }
+  return authenticatedRequest<{ note: SavedNote }>(
+    `/api/notes/${encodeURIComponent(noteId)}`,
+    "PATCH",
+    { isPublic },
+  );
+}
+
+export async function deleteNote(uid: string, noteId: string) {
+  if (!auth?.currentUser || auth.currentUser.uid !== uid) {
+    throw new Error("Please sign in again before deleting this note.");
+  }
+  await authenticatedRequest(
+    `/api/notes/${encodeURIComponent(noteId)}`,
+    "DELETE",
+  );
+}
 
 export function subscribeToDecks(
   uid: string,

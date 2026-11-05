@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import type { CardStatus, Deck, Flashcard } from "@/lib/flashcards";
+import { getRelatedDistractors } from "@/lib/multipleChoice";
 
 type SharedDeck = Deck & { id: string };
 type SharedCard = Flashcard & { id: string; status: CardStatus };
@@ -40,21 +41,10 @@ const MAX_BREAK_MINUTES = 60;
 
 function getAnswerOptions(card: SharedCard, cards: SharedCard[]): AnswerOption[] {
   const correct = card.answer.trim();
-  const answers = cards
-    .filter((item) => item.id !== card.id)
-    .map((item) => item.answer.trim())
-    .filter(
-      (answer, index, list) =>
-        answer &&
-        answer.toLocaleLowerCase() !== correct.toLocaleLowerCase() &&
-        list.findIndex(
-          (other) => other.toLocaleLowerCase() === answer.toLocaleLowerCase(),
-        ) === index,
-    )
-    .slice(0, 3);
+  const answers = getRelatedDistractors(card, cards);
   const options = [{ answer: correct, isCorrect: true }, ...answers.map((answer) => ({ answer, isCorrect: false }))];
   let seed = 0;
-  for (const char of card.id) seed = (seed * 31 + char.charCodeAt(0)) | 0;
+  for (const char of card.id) seed = (Math.imul(seed, 31) + char.charCodeAt(0)) >>> 0;
   for (let i = options.length - 1; i > 0; i -= 1) {
     seed = (seed * 9301 + 49297) % 233280;
     const swap = Math.floor((seed / 233280) * (i + 1));
@@ -69,6 +59,7 @@ function SharedDeckContent() {
   const [ownerName, setOwnerName] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [unavailable, setUnavailable] = useState(false);
   const [statuses, setStatuses] = useState<Record<string, CardStatus>>({});
   const [filter, setFilter] = useState<CardFilter>("all");
   const [formatFilter, setFormatFilter] = useState<FormatFilter>("mixed");
@@ -98,6 +89,10 @@ function SharedDeckContent() {
           error?: string;
         };
         if (!response.ok || !result.deck) {
+          if (response.status === 404) {
+            if (active) setUnavailable(true);
+            return;
+          }
           throw new Error(result.error || "This shared deck couldn’t be loaded.");
         }
         if (active) {
@@ -297,6 +292,18 @@ function SharedDeckContent() {
             <LoaderCircle size={18} className="animate-spin text-indigo-600" />
             Loading shared flashcards
           </div>
+        ) : unavailable ? (
+          <section className="mx-auto mt-10 max-w-xl rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center shadow-sm sm:px-10">
+            <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-indigo-50 text-indigo-600">
+              <Sparkles size={24} />
+            </span>
+            <p className="mt-5 text-xs font-semibold uppercase tracking-[0.14em] text-indigo-600">Shared deck unavailable</p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">This link has expired or moved.</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-500">The owner may have made this deck private or removed it. You can still browse other public decks.</p>
+            <Link href="/discover" className="mt-6 inline-flex h-10 items-center justify-center rounded-xl bg-indigo-600 px-4 text-xs font-semibold text-white transition hover:bg-indigo-700">
+              Browse public decks
+            </Link>
+          </section>
         ) : error ? (
           <div role="alert" className="mt-7 rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
             <p>{error}</p>
@@ -456,7 +463,7 @@ function SharedDeckContent() {
                     <h2 className="mx-auto mt-7 max-w-xl whitespace-pre-wrap text-center text-xl font-medium leading-relaxed text-slate-800 sm:text-2xl">{card.question}</h2>
                     <p className="mt-2 text-center text-[10px] text-slate-400">Try to answer from memory before choosing.</p>
                     <div className="mx-auto mt-6 grid max-w-xl gap-2.5">
-                      {options.map((option, optionIndex) => {
+                      {options.length > 1 ? options.map((option, optionIndex) => {
                         const selected = selectedAnswer?.toLocaleLowerCase() === option.answer.toLocaleLowerCase();
                         const correctShown = selectedOption && option.isCorrect;
                         const style = correctShown
@@ -470,7 +477,12 @@ function SharedDeckContent() {
                             <span className="whitespace-pre-wrap">{option.answer}</span>
                           </button>
                         );
-                      })}
+                      }) : (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-center">
+                          <p className="text-xs leading-5 text-amber-800">There aren’t enough related answer choices in this deck for this question.</p>
+                          <button type="button" onClick={() => { setStudyMode("flashcards"); resetCardView(); }} className="mt-2 text-xs font-semibold text-indigo-700 underline underline-offset-2">Switch to flashcards</button>
+                        </div>
+                      )}
                     </div>
                     {selectedOption && <p aria-live="polite" className={`mx-auto mt-4 max-w-xl rounded-xl px-4 py-3 text-center text-sm font-medium ${selectedOption.isCorrect ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>{selectedOption.isCorrect ? "That’s right!" : `Not quite. The answer is: ${card.answer}`}</p>}
                     {card.hint && <button type="button" onClick={() => setShowHint((current) => !current)} className="mx-auto mt-4 flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-[11px] font-medium text-amber-700 hover:bg-amber-50"><Lightbulb size={14} />{showHint ? "Hide hint" : "Show hint"}</button>}

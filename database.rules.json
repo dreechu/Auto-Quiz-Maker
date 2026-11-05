@@ -8,6 +8,12 @@
         }
       }
     },
+    "notes": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": false
+      }
+    },
     "decks": {
       "$uid": {
         ".read": "auth != null && auth.uid == $uid",
@@ -15,6 +21,11 @@
       }
     },
     "publicDecks": {
+      ".read": false,
+      ".write": false,
+      ".indexOn": ["updatedAt"]
+    },
+    "publicNotes": {
       ".read": false,
       ".write": false,
       ".indexOn": ["updatedAt"]

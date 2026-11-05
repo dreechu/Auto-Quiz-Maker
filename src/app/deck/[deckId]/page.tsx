@@ -25,6 +25,7 @@ import { useAuth } from "@/context/AuthContext";
 import { rateCard, subscribeToDeck } from "@/lib/db";
 import type { Deck, Flashcard } from "@/lib/flashcards";
 import type { ReviewRating } from "@/lib/flashcards";
+import { getRelatedDistractors } from "@/lib/multipleChoice";
 
 type StudyCard = Flashcard & { id: string };
 type CardFilter = "all" | "learning" | "due";
@@ -44,20 +45,7 @@ type AnswerOption = {
 
 function getAnswerOptions(card: StudyCard, cards: StudyCard[]): AnswerOption[] {
   const correctAnswer = card.answer.trim();
-  const normalizedCorrectAnswer = correctAnswer.toLocaleLowerCase();
-  const distractors = cards
-    .filter((item) => item.id !== card.id)
-    .map((item) => item.answer.trim())
-    .filter(
-      (answer, index, answers) =>
-        answer.length > 0 &&
-        answer.toLocaleLowerCase() !== normalizedCorrectAnswer &&
-        answers.findIndex(
-          (candidate) =>
-            candidate.toLocaleLowerCase() === answer.toLocaleLowerCase(),
-        ) === index,
-    )
-    .slice(0, 3)
+  const distractors = getRelatedDistractors(card, cards)
     .map((answer) => ({ answer, isCorrect: false }));
   const options = [{ answer: correctAnswer, isCorrect: true }, ...distractors];
 
@@ -686,7 +674,7 @@ function StudyDeck() {
                 </h2>
                 <p className="mt-2 text-center text-[10px] text-slate-400">Active recall: pause and try to answer from memory before choosing.</p>
                 <div className="mx-auto mt-7 grid max-w-xl gap-2.5">
-                  {answerOptions.map((option, optionIndex) => {
+                  {answerOptions.length > 1 ? answerOptions.map((option, optionIndex) => {
                     const isSelected =
                       selectedAnswer?.toLocaleLowerCase() ===
                       option.answer.toLocaleLowerCase();
@@ -711,7 +699,12 @@ function StudyDeck() {
                         <span className="whitespace-pre-wrap">{option.answer}</span>
                       </button>
                     );
-                  })}
+                  }) : (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-center">
+                      <p className="text-xs leading-5 text-amber-800">There aren’t enough related answer choices in this deck for this question.</p>
+                      <button type="button" onClick={() => changeStudyMode("flashcards")} className="mt-2 text-xs font-semibold text-indigo-700 underline underline-offset-2">Switch to flashcards</button>
+                    </div>
+                  )}
                 </div>
                 {selectedOption && (
                   <p aria-live="polite" className={`mx-auto mt-4 max-w-xl rounded-xl px-4 py-3 text-center text-sm font-medium ${selectedOption.isCorrect ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>
