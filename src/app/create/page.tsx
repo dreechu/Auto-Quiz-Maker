@@ -71,7 +71,7 @@ function CreateDeckForm() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const cardsListRef = useRef<HTMLDivElement>(null);
-  const [inputMode, setInputMode] = useState<"file" | "notes">("file");
+  const [inputMode, setInputMode] = useState<"file" | "notes" | "manual">("file");
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [notes, setNotes] = useState("");
@@ -87,6 +87,7 @@ function CreateDeckForm() {
   const [error, setError] = useState("");
   const [review, setReview] = useState<GenerationResult | null>(null);
   const [importedAnki, setImportedAnki] = useState(false);
+  const [manualDeck, setManualDeck] = useState(false);
   const [cards, setCards] = useState<ReviewCard[]>([]);
   const [reviewPage, setReviewPage] = useState(1);
   const [title, setTitle] = useState("");
@@ -149,6 +150,26 @@ function CreateDeckForm() {
       setError("Please sign in before creating a deck.");
       return;
     }
+    if (inputMode === "manual") {
+      setDeckSourceType("text");
+      setImportedAnki(false);
+      setManualDeck(true);
+      setReview({ suggestedTitle: "", summary: "", cards: [] });
+      setTitle("");
+      setSummary("");
+      setCards([{
+        id: crypto.randomUUID(),
+        question: "",
+        answer: "",
+        hint: "",
+        difficulty,
+        status: "new",
+        format: questionFormat === "enumeration" ? "enumeration" : "identification",
+      }]);
+      setReviewPage(1);
+      setError("");
+      return;
+    }
     if (inputMode === "file" && !file) {
       setError("Choose a file to continue.");
       return;
@@ -185,6 +206,7 @@ function CreateDeckForm() {
         setProgressStep(2);
         setDeckSourceType("anki");
         setImportedAnki(true);
+        setManualDeck(false);
         setReview(result);
         setTitle(result.suggestedTitle);
         setSummary(result.summary);
@@ -230,6 +252,7 @@ function CreateDeckForm() {
 
       setProgressStep(2);
       setImportedAnki(false);
+      setManualDeck(false);
       setReview(result);
       setTitle(result.suggestedTitle);
       setSummary(result.summary);
@@ -362,6 +385,7 @@ function CreateDeckForm() {
   function startOver() {
     setReview(null);
     setImportedAnki(false);
+    setManualDeck(false);
     setCards([]);
     setReviewPage(1);
     setTitle("");
@@ -402,16 +426,27 @@ function CreateDeckForm() {
 
             <form onSubmit={handleGenerate} className="space-y-5">
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-                <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Material input method">
+                <div className="grid grid-cols-3 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Material input method">
                   <button type="button" role="tab" aria-selected={inputMode === "file"} onClick={() => { setInputMode("file"); setError(""); }} className={`h-10 rounded-lg text-xs font-semibold transition ${inputMode === "file" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                     Upload File / Photo
                   </button>
                   <button type="button" role="tab" aria-selected={inputMode === "notes"} onClick={() => { setInputMode("notes"); setError(""); }} className={`h-10 rounded-lg text-xs font-semibold transition ${inputMode === "notes" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                     Paste Raw Notes
                   </button>
+                  <button type="button" role="tab" aria-selected={inputMode === "manual"} onClick={() => { setInputMode("manual"); setError(""); }} className={`h-10 rounded-lg text-xs font-semibold transition ${inputMode === "manual" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                    Create Manually
+                  </button>
                 </div>
 
-                {inputMode === "file" ? (
+                {inputMode === "manual" ? (
+                  <div className="mt-5 rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+                    <p className="text-sm font-semibold text-slate-800">Build your own flashcards</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">Set a title, then add each question, answer, hint, format, and difficulty yourself. You can edit or remove cards before saving.</p>
+                    <button type="submit" className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700">
+                      <Plus size={14} /> Start adding cards
+                    </button>
+                  </div>
+                ) : inputMode === "file" ? (
                   <>
                     <input ref={inputRef} type="file" accept={ACCEPTED} onChange={handleFileChange} className="sr-only" aria-label="Choose a study file" />
                     {file ? (
@@ -464,7 +499,7 @@ function CreateDeckForm() {
               {error && <p role="alert" className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-700">{error}</p>}
 
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-                {!isAnkiPackage && <>
+                {!isAnkiPackage && inputMode !== "manual" && <>
                 <label className="mb-5 block">
                   <span className="mb-2.5 block text-xs font-semibold text-slate-700">Number of cards</span>
                   <input
@@ -483,7 +518,9 @@ function CreateDeckForm() {
                 <PillGroup<Difficulty> label="Difficulty" values={["easy", "medium", "hard"]} labels={{ easy: "Easy", medium: "Medium", hard: "Hard" }} selected={difficulty} onChange={setDifficulty} />
                 </>}
 
-                {generating ? (
+                {inputMode === "manual" ? (
+                  <p className="mt-5 text-center text-[10px] leading-5 text-slate-400">Manual decks are saved only when you finish reviewing them.</p>
+                ) : generating ? (
                   <div className="mt-6">
                     <TaskProgress
                       steps={isAnkiPackage ? ANKI_PROGRESS_STEPS : PROGRESS_STEPS}
@@ -496,7 +533,7 @@ function CreateDeckForm() {
                     {isAnkiPackage ? "Import Anki cards" : "Generate flashcards"}
                   </button>
                 )}
-                <p className="mt-3 text-center text-[10px] leading-5 text-slate-400">Your original file is processed temporarily and is never saved.</p>
+                <p className="mt-3 text-center text-[10px] leading-5 text-slate-400">{inputMode === "manual" ? "No AI generation is used. Your deck is saved when you finish reviewing it." : "Your original file is processed temporarily and is never saved."}</p>
               </section>
             </form>
           </motion.main>
@@ -516,10 +553,10 @@ function CreateDeckForm() {
             <div className="mb-7">
               <span className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700">
                 <Check size={12} />
-                {importedAnki ? "Anki cards imported" : "Your first draft is ready"}
+                {manualDeck ? "Manual deck" : importedAnki ? "Anki cards imported" : "Your first draft is ready"}
               </span>
               <h1 className="text-[30px] font-semibold tracking-[-0.05em] text-slate-900 sm:text-4xl">Review your flashcards</h1>
-              <p className="mt-2 text-sm text-slate-500">{importedAnki ? "Review and edit your imported cards. Nothing is saved until you’re ready." : "Make any changes you like. Nothing is saved until you’re ready."}</p>
+              <p className="mt-2 text-sm text-slate-500">{manualDeck ? "Add and edit your own cards below. Nothing is saved until you’re ready." : importedAnki ? "Review and edit your imported cards. Nothing is saved until you’re ready." : "Make any changes you like. Nothing is saved until you’re ready."}</p>
             </div>
 
             <section className="mb-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">

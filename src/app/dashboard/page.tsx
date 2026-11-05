@@ -6,6 +6,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   BookOpen,
   CalendarDays,
+  Calculator,
+  Code2,
   Flame,
   FileImage,
   FileText,
@@ -22,6 +24,7 @@ import {
 } from "lucide-react";
 import { AuthGate } from "@/components/AuthGate";
 import { Navbar } from "@/components/Navbar";
+import { FEATURE_FLAGS } from "@/lib/featureFlags";
 import { useAuth } from "@/context/AuthContext";
 import { deleteDeck, getStudyInsights, setDeckPublic, subscribeToDecks, type DeckWithId, type StudyInsights } from "@/lib/db";
 import { PLAN_LABELS, PLAN_LIMITS } from "@/lib/plans";
@@ -262,6 +265,27 @@ function DashboardContent() {
               </Link>
             )}
           </div>
+        </section>
+
+        <section aria-label="Practice math" className="mt-4 grid gap-3 sm:grid-cols-2">
+          {FEATURE_FLAGS.programmingPractice && (
+            <Link href="/programming" className="group flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-indigo-200 hover:shadow-md">
+              <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600"><Code2 size={19} /></span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-slate-800">Practice programming</span>
+                <span className="mt-1 block text-xs text-slate-500">Solve coding problems in Java or C.</span>
+              </span>
+              <span aria-hidden="true" className="text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-600">→</span>
+            </Link>
+          )}
+          <Link href="/math" className="group flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-violet-200 hover:shadow-md">
+            <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-violet-50 text-violet-600"><Calculator size={19} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-slate-800">Practice math</span>
+              <span className="mt-1 block text-xs text-slate-500">Work through algebra, calculus, and more.</span>
+            </span>
+            <span aria-hidden="true" className="text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-violet-600">→</span>
+          </Link>
         </section>
 
         <section className="mt-6 grid gap-4 lg:grid-cols-[1.25fr_1fr]">

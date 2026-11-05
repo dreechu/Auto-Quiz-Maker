@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Compass, Command, NotebookPen, Shield } from "lucide-react";
+import { Code2, Compass, Command, NotebookPen, Shield } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { FEATURE_FLAGS } from "@/lib/featureFlags";
 
 export function Navbar() {
   const { user, profile, isAdmin } = useAuth();
@@ -30,6 +31,17 @@ export function Navbar() {
 
         <div className="flex items-center gap-2.5 sm:gap-4">
           <ThemeToggle />
+          {FEATURE_FLAGS.programmingPractice && (
+            <Link
+              href="/programming"
+              aria-label="Practice programming"
+              title="Practice programming"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700 sm:px-2.5"
+            >
+              <Code2 size={15} />
+              <span className="hidden sm:inline">Programming</span>
+            </Link>
+          )}
           <Link
             href="/notes"
             aria-label="Create AI study notes"

@@ -154,6 +154,99 @@ export async function GET(request: Request) {
   }
 }
 
+export async function PUT(request: Request) {
+  const identity = await verifyRequestUser(request);
+  if (!identity) {
+    return Response.json({ error: "Please sign in before saving notes." }, { status: 401 });
+  }
+
+  try {
+    if (Number(request.headers.get("content-length") ?? 0) > 2_000_000) {
+      return Response.json({ error: "The manual notes entry is too large." }, { status: 413 });
+    }
+    const payload = (await request.json()) as Record<string, unknown>;
+    const title = typeof payload.title === "string" ? payload.title.trim() : "";
+    const summary = typeof payload.summary === "string" ? payload.summary.trim() : "";
+    if (!title || title.length > 120 || summary.length > 5_000) {
+      return Response.json({ error: "Enter a title (up to 120 characters) and a summary up to 5,000 characters." }, { status: 400 });
+    }
+    if (!Array.isArray(payload.sections) || payload.sections.length < 1 || payload.sections.length > 100) {
+      return Response.json({ error: "Add between 1 and 100 note sections." }, { status: 400 });
+    }
+
+    const sections: NoteSection[] = [];
+    for (const [index, rawSection] of payload.sections.entries()) {
+      if (!rawSection || typeof rawSection !== "object") {
+        return Response.json({ error: `Section ${index + 1} is invalid.` }, { status: 400 });
+      }
+      const section = rawSection as Record<string, unknown>;
+      const heading = typeof section.heading === "string" ? section.heading.trim() : "";
+      const content = typeof section.content === "string" ? section.content.trim() : "";
+      const examples = Array.isArray(section.examples)
+        ? section.examples.filter((value): value is string => typeof value === "string" && Boolean(value.trim())).map((value) => value.trim())
+        : [];
+      if (!heading || heading.length > 160 || !content || content.length > 20_000 || examples.length > 20 || examples.some((example) => example.length > 2_000)) {
+        return Response.json({ error: `Section ${index + 1} needs a heading, content, and valid examples.` }, { status: 400 });
+      }
+      sections.push({ heading, content, ...(examples.length ? { examples } : {}) });
+    }
+
+    const keyTakeaways = Array.isArray(payload.keyTakeaways)
+      ? payload.keyTakeaways.filter((value): value is string => typeof value === "string" && Boolean(value.trim())).map((value) => value.trim())
+      : [];
+    if (keyTakeaways.length > 100 || keyTakeaways.some((value) => value.length > 2_000)) {
+      return Response.json({ error: "Key takeaways must be under 2,000 characters each, with at most 100 items." }, { status: 400 });
+    }
+
+    if (!Array.isArray(payload.keyTerms) || payload.keyTerms.length > 100) {
+      return Response.json({ error: "Key terms must contain no more than 100 items." }, { status: 400 });
+    }
+    const keyTerms: NoteKeyTerm[] = [];
+    for (const [index, rawTerm] of payload.keyTerms.entries()) {
+      if (!rawTerm || typeof rawTerm !== "object") {
+        return Response.json({ error: `Key term ${index + 1} is invalid.` }, { status: 400 });
+      }
+      const term = rawTerm as Record<string, unknown>;
+      if (typeof term.term !== "string" || !term.term.trim() || term.term.length > 160 || typeof term.definition !== "string" || !term.definition.trim() || term.definition.length > 2_000) {
+        return Response.json({ error: `Key term ${index + 1} needs a term and definition.` }, { status: 400 });
+      }
+      keyTerms.push({ term: term.term.trim(), definition: term.definition.trim() });
+    }
+
+    const now = Date.now();
+    const note: StudyNote = {
+      id: "",
+      title,
+      sourceName: "Manual entry",
+      sources: ["Manual entry"],
+      sourceType: "manual",
+      summary,
+      sections,
+      keyTakeaways,
+      keyTerms,
+      createdAt: now,
+      updatedAt: now,
+    };
+    let savedNoteId: string | null = null;
+    for (let attempt = 0; attempt < 5 && !savedNoteId; attempt += 1) {
+      const candidateId = randomBytes(16).toString("hex");
+      note.id = candidateId;
+      const result = await getAdminDatabase()
+        .ref(`notes/${identity.uid}/${candidateId}`)
+        .transaction((current) => current === null ? note : undefined);
+      if (result.committed) savedNoteId = candidateId;
+    }
+    if (!savedNoteId) throw new Error("A unique note ID couldn’t be created. Please try again.");
+    return Response.json({ note });
+  } catch (error) {
+    console.error("Could not save manually entered notes.", error);
+    return Response.json(
+      { error: error instanceof Error ? error.message : "The notes couldn’t be saved." },
+      { status: 500 },
+    );
+  }
+}
+
 async function createNote(
   request: Request,
   identity: NonNullable<Awaited<ReturnType<typeof verifyRequestUser>>>,

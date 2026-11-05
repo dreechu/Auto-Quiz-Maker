@@ -31,7 +31,7 @@ import { TaskProgress } from "@/components/TaskProgress";
 import { useAuth } from "@/context/AuthContext";
 import { MAX_UPLOAD_BYTES } from "@/lib/api-limits";
 import { deleteNote, getNotes, renameNote, setNotePublic, type SavedNote } from "@/lib/db";
-import type { NoteKeyTerm } from "@/lib/notes";
+import type { NoteKeyTerm, NoteSection } from "@/lib/notes";
 
 const MAX_FILE_BYTES = MAX_UPLOAD_BYTES;
 const SECTIONS_PER_PAGE = 3;
@@ -57,6 +57,7 @@ const FILE_LABELS: Record<string, string> = {
   txt: "Text",
   md: "Markdown",
   multiple: "Multiple sources",
+  manual: "Manual",
 };
 
 function formattedDate(timestamp: number) {
@@ -130,12 +131,16 @@ function NoteReader({
   ownerUid,
   onBack,
   onAppend,
+  onAppendManual,
+  onExpandWithAi,
   onTogglePublic,
 }: {
   note: SavedNote;
   ownerUid: string;
   onBack: () => void;
   onAppend: (noteId: string, file: File) => Promise<SavedNote>;
+  onAppendManual: (noteId: string, section: NoteSection) => Promise<SavedNote>;
+  onExpandWithAi: (noteId: string, focus: string) => Promise<SavedNote>;
   onTogglePublic: (note: SavedNote) => Promise<SavedNote>;
 }) {
   const [copied, setCopied] = useState(false);
@@ -145,6 +150,14 @@ function NoteReader({
   const [addingMore, setAddingMore] = useState(false);
   const [progressStep, setProgressStep] = useState(0);
   const [appendError, setAppendError] = useState("");
+  const [addMode, setAddMode] = useState<"closed" | "manual" | "ai">("closed");
+  const [manualHeading, setManualHeading] = useState("");
+  const [manualContent, setManualContent] = useState("");
+  const [manualExamples, setManualExamples] = useState("");
+  const [manualSaving, setManualSaving] = useState(false);
+  const [aiFocus, setAiFocus] = useState("");
+  const [aiExpanding, setAiExpanding] = useState(false);
+  const [aiError, setAiError] = useState("");
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState("");
   const appendInputRef = useRef<HTMLInputElement>(null);
@@ -263,6 +276,54 @@ function NoteReader({
     }
   }
 
+  async function saveManualAddition(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const heading = manualHeading.trim();
+    const content = manualContent.trim();
+    if (!heading || !content) {
+      setAppendError("Add a heading and some content for this section.");
+      return;
+    }
+    setManualSaving(true);
+    setAppendError("");
+    try {
+      const updatedNote = await onAppendManual(note.id, {
+        heading,
+        content,
+        examples: manualExamples.split("\n").map((example) => example.trim()).filter(Boolean),
+      });
+      setManualHeading("");
+      setManualContent("");
+      setManualExamples("");
+      setAddMode("closed");
+      setCurrentPage(Math.max(0, Math.ceil(updatedNote.sections.length / SECTIONS_PER_PAGE) - 1));
+      setActiveView("details");
+    } catch (error) {
+      console.error("Could not save manual notes to this note.", error);
+      setAppendError(error instanceof Error ? error.message : "The new section couldn’t be saved.");
+    } finally {
+      setManualSaving(false);
+    }
+  }
+
+  async function expandWithAi(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAiExpanding(true);
+    setAiError("");
+    try {
+      const updatedNote = await onExpandWithAi(note.id, aiFocus.trim());
+      setAiFocus("");
+      setAddMode("closed");
+      setCurrentPage(Math.max(0, Math.ceil(updatedNote.sections.length / SECTIONS_PER_PAGE) - 1));
+      setActiveView("details");
+    } catch (error) {
+      console.error("Could not expand this note with AI.", error);
+      setAiError(error instanceof Error ? error.message : "AI couldn’t expand these notes. Please try again.");
+    } finally {
+      setAiExpanding(false);
+    }
+  }
+
   function renderPagination() {
     if (totalPages <= 1) return null;
     const firstSection = sectionStart + 1;
@@ -343,12 +404,12 @@ function NoteReader({
             {note.isPublic && <button type="button" onClick={() => void copyPublicLink()} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"><Clipboard size={14} />Copy link</button>}
             <button
               type="button"
-              onClick={() => appendInputRef.current?.click()}
-              disabled={addingMore}
+              onClick={() => setAddMode((mode) => mode === "closed" ? "manual" : "closed")}
+              disabled={addingMore || manualSaving || aiExpanding}
               className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {addingMore ? <LoaderCircle size={14} className="animate-spin" /> : <FileUp size={14} />}
-              Add more
+              {addingMore || manualSaving || aiExpanding ? <LoaderCircle size={14} className="animate-spin" /> : <Plus size={14} />}
+              {addMode === "closed" ? "Add to notes" : "Close"}
             </button>
             <button type="button" onClick={copyNotes} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
               {copied ? <Check size={14} /> : <Clipboard size={14} />}
@@ -365,6 +426,74 @@ function NoteReader({
       {copyError && <p role="alert" className="mb-4 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs text-rose-700">{copyError}</p>}
       {appendError && <p role="alert" className="mb-4 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs text-rose-700">{appendError}</p>}
       {shareError && <p role="alert" className="mb-4 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs text-rose-700">{shareError}</p>}
+      {addMode !== "closed" && (
+        <section aria-label="Add material to this note" className="mb-5 rounded-2xl border border-indigo-100 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-800">Add to this note</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">Write your own section, ask AI to expand the existing notes, or add another file.</p>
+            </div>
+            <button type="button" onClick={() => { setAddMode("closed"); setAppendError(""); setAiError(""); }} aria-label="Close add to notes panel" className="grid size-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
+              <X size={15} />
+            </button>
+          </div>
+          <div className="mb-5 flex flex-wrap gap-2">
+            <button type="button" onClick={() => setAddMode("manual")} aria-pressed={addMode === "manual"} className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition ${addMode === "manual" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+              <NotebookPen size={14} /> Write manually
+            </button>
+            <button type="button" onClick={() => { setAddMode("ai"); setAiError(""); }} aria-pressed={addMode === "ai"} className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition ${addMode === "ai" ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+              <Sparkles size={14} /> Expand with AI
+            </button>
+            <button type="button" onClick={() => { setAddMode("closed"); setAppendError(""); appendInputRef.current?.click(); }} disabled={addingMore} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-slate-100 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-200 disabled:opacity-50">
+              <FileUp size={14} /> Upload a file
+            </button>
+          </div>
+          {addMode === "manual" ? (
+            <form onSubmit={(event) => void saveManualAddition(event)} className="grid gap-3">
+              <label className="grid gap-1.5 text-xs font-semibold text-slate-700">
+                Section heading
+                <input value={manualHeading} onChange={(event) => setManualHeading(event.target.value)} maxLength={160} required placeholder="What are you adding?" className="h-10 rounded-lg border border-slate-200 px-3 text-xs font-normal outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-50" />
+              </label>
+              <label className="grid gap-1.5 text-xs font-semibold text-slate-700">
+                Notes
+                <textarea value={manualContent} onChange={(event) => setManualContent(event.target.value)} maxLength={20000} rows={5} required placeholder="Add explanations, details, bullets, or reminders…" className="resize-y rounded-lg border border-slate-200 p-3 text-xs font-normal leading-6 outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-50" />
+              </label>
+              <label className="grid gap-1.5 text-xs font-semibold text-slate-700">
+                Examples <span className="font-normal text-slate-400">(optional, one per line)</span>
+                <textarea value={manualExamples} onChange={(event) => setManualExamples(event.target.value)} rows={2} placeholder="Add examples to remember…" className="resize-y rounded-lg border border-slate-200 p-3 text-xs font-normal leading-5 outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-50" />
+              </label>
+              <div className="flex justify-end">
+                <button type="submit" disabled={manualSaving || aiExpanding} className="inline-flex h-10 items-center gap-2 rounded-xl bg-indigo-600 px-4 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60">
+                  {manualSaving ? <LoaderCircle size={14} className="animate-spin" /> : <Check size={14} />}
+                  {manualSaving ? "Saving section…" : "Add section"}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={(event) => void expandWithAi(event)} className="rounded-xl border border-violet-100 bg-violet-50/60 p-4">
+              <div className="flex items-start gap-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white text-violet-600 shadow-sm"><Sparkles size={17} /></span>
+                <div>
+                  <h3 className="text-xs font-semibold text-violet-950">Let AI build the prompt from your notes</h3>
+                  <p className="mt-1 text-[11px] leading-5 text-violet-900/70">AI will read this note, avoid repeating existing sections, and add useful explanations, examples, takeaways, and terms.</p>
+                </div>
+              </div>
+              <label className="mt-4 grid gap-1.5 text-xs font-semibold text-slate-700">
+                What should it focus on? <span className="font-normal text-slate-400">(optional)</span>
+                <input value={aiFocus} onChange={(event) => setAiFocus(event.target.value)} maxLength={500} placeholder="Leave blank for AI to find useful areas to expand" className="h-10 rounded-lg border border-violet-200 bg-white px-3 text-xs font-normal outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100" />
+              </label>
+              {aiError && <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">{aiError}</p>}
+              <div className="mt-4 flex justify-end">
+                <button type="submit" disabled={aiExpanding || manualSaving} className="inline-flex h-10 items-center gap-2 rounded-xl bg-violet-600 px-4 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:cursor-wait disabled:opacity-60">
+                  {aiExpanding ? <LoaderCircle size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  {aiExpanding ? "Expanding your notes…" : "Expand my notes"}
+                </button>
+              </div>
+              <p className="mt-2 text-right text-[10px] text-violet-900/50">Uses your account’s monthly AI generation allowance.</p>
+            </form>
+          )}
+        </section>
+      )}
       {addingMore && (
         <div className="mb-5 rounded-xl border border-indigo-100 bg-white p-4">
           <TaskProgress steps={NOTES_PROGRESS_STEPS} activeStep={progressStep} />
@@ -509,6 +638,14 @@ function NotesDashboardContent() {
   const [progressStep, setProgressStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createMode, setCreateMode] = useState<"upload" | "manual">("upload");
+  const [manualTitle, setManualTitle] = useState("");
+  const [manualSummary, setManualSummary] = useState("");
+  const [manualSections, setManualSections] = useState<NoteSection[]>([
+    { heading: "", content: "", examples: [] },
+  ]);
+  const [manualTakeaways, setManualTakeaways] = useState("");
+  const [manualTerms, setManualTerms] = useState("");
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [actionNoteId, setActionNoteId] = useState<string | null>(null);
   const userUid = user?.uid;
@@ -579,6 +716,10 @@ function NotesDashboardContent() {
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (createMode === "manual") {
+      await handleManualCreate();
+      return;
+    }
     if (!user || !file) {
       setPageError("Choose a file before creating notes.");
       return;
@@ -616,6 +757,71 @@ function NotesDashboardContent() {
     }
   }
 
+  async function handleManualCreate() {
+    if (!user) {
+      setPageError("Please sign in before saving notes.");
+      return;
+    }
+    const sections = manualSections.filter((section) => section.heading.trim() && section.content.trim()).map((section) => ({
+      heading: section.heading.trim(),
+      content: section.content.trim(),
+      examples: (section.examples ?? []).filter((example) => example.trim()),
+    }));
+    if (!manualTitle.trim()) {
+      setPageError("Add a title for your notes.");
+      return;
+    }
+    if (!sections.length) {
+      setPageError("Add at least one section with a heading and content.");
+      return;
+    }
+    const keyTakeaways = manualTakeaways.split("\n").map((item) => item.trim()).filter(Boolean);
+    const keyTerms: NoteKeyTerm[] = manualTerms.split("\n").flatMap((line) => {
+      const separator = line.indexOf("|");
+      if (separator < 1) return [];
+      const term = line.slice(0, separator).trim();
+      const definition = line.slice(separator + 1).trim();
+      return term && definition ? [{ term, definition }] : [];
+    });
+
+    setSaving(true);
+    setPageError("");
+    try {
+      const idToken = await user.getIdToken();
+      const response = await fetch("/api/notes", {
+        method: "PUT",
+        headers: {
+          Authorization: ["Bearer", idToken].join(" "),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: manualTitle,
+          summary: manualSummary,
+          sections,
+          keyTakeaways,
+          keyTerms,
+        }),
+      });
+      const result = (await response.json()) as { note?: SavedNote; error?: string };
+      if (!response.ok || !result.note?.id) {
+        throw new Error(result.error || "Your manually entered notes couldn’t be saved.");
+      }
+      setNotes((current) => [result.note!, ...current]);
+      setSelectedNoteId(result.note.id);
+      setCreateOpen(false);
+      setManualTitle("");
+      setManualSummary("");
+      setManualSections([{ heading: "", content: "", examples: [] }]);
+      setManualTakeaways("");
+      setManualTerms("");
+    } catch (error) {
+      console.error("Could not save manually entered notes.", error);
+      setPageError(error instanceof Error ? error.message : "Your notes couldn’t be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleAppend(noteId: string, file: File): Promise<SavedNote> {
     if (!user) throw new Error("Please sign in again before adding material.");
     const idToken = await user.getIdToken();
@@ -635,6 +841,44 @@ function NotesDashboardContent() {
     return result.note;
   }
 
+  async function handleAppendManual(noteId: string, section: NoteSection): Promise<SavedNote> {
+    if (!user) throw new Error("Please sign in again before adding to this note.");
+    const idToken = await user.getIdToken();
+    const response = await fetch(`/api/notes/${encodeURIComponent(noteId)}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: ["Bearer", idToken].join(" "),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ appendSections: [section] }),
+    });
+    const result = (await response.json()) as { note?: SavedNote; error?: string };
+    if (!response.ok || !result.note?.id) {
+      throw new Error(result.error || "The new section couldn’t be saved.");
+    }
+    setNotes((current) => current.map((note) => note.id === noteId ? result.note! : note));
+    return result.note;
+  }
+
+  async function handleExpandWithAi(noteId: string, focus: string): Promise<SavedNote> {
+    if (!user) throw new Error("Please sign in again before expanding this note.");
+    const idToken = await user.getIdToken();
+    const response = await fetch(`/api/notes/${encodeURIComponent(noteId)}/expand`, {
+      method: "POST",
+      headers: {
+        Authorization: ["Bearer", idToken].join(" "),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ focus }),
+    });
+    const result = (await response.json()) as { note?: SavedNote; error?: string };
+    if (!response.ok || !result.note?.id) {
+      throw new Error(result.error || "AI couldn’t expand these notes. Please try again.");
+    }
+    setNotes((current) => current.map((note) => note.id === noteId ? result.note! : note));
+    return result.note;
+  }
+
   async function handleTogglePublic(note: SavedNote): Promise<SavedNote> {
     if (!user) throw new Error("Please sign in again before changing sharing settings.");
     if (!note.isPublic && !window.confirm("Publishing makes this note visible to everyone in Discover. You can make it private again at any time.")) {
@@ -642,7 +886,22 @@ function NotesDashboardContent() {
     }
     setActionNoteId(note.id);
     try {
-      const result = await setNotePublic(user.uid, note.id, !note.isPublic);
+      let result: Awaited<ReturnType<typeof setNotePublic>>;
+      try {
+        result = await setNotePublic(user.uid, note.id, !note.isPublic);
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== "This note could not be found.") {
+          throw error;
+        }
+        const refreshedNotes = await getNotes(user.uid);
+        setNotes(refreshedNotes);
+        const refreshedNote = refreshedNotes.find((item) => item.id === note.id);
+        if (!refreshedNote) {
+          if (selectedNoteId === note.id) setSelectedNoteId(null);
+          throw new Error("This note is no longer in your account. Your notes list has been refreshed.");
+        }
+        result = await setNotePublic(user.uid, refreshedNote.id, !refreshedNote.isPublic);
+      }
       setNotes((current) => current.map((item) => item.id === note.id ? result.note : item));
       return result.note;
     } finally {
@@ -687,6 +946,7 @@ function NotesDashboardContent() {
     setSelectedNoteId(null);
     setFile(null);
     setPageError("");
+    setCreateMode("upload");
     setCreateOpen(true);
   }
 
@@ -695,7 +955,7 @@ function NotesDashboardContent() {
       <Navbar />
       <main className="mx-auto max-w-6xl px-4 py-8 pb-16 sm:px-6 sm:py-10 lg:px-8">
         {selectedNote ? (
-          <NoteReader key={selectedNote.id} note={selectedNote} ownerUid={user?.uid ?? ""} onBack={() => setSelectedNoteId(null)} onAppend={handleAppend} onTogglePublic={handleTogglePublic} />
+          <NoteReader key={selectedNote.id} note={selectedNote} ownerUid={user?.uid ?? ""} onBack={() => setSelectedNoteId(null)} onAppend={handleAppend} onAppendManual={handleAppendManual} onExpandWithAi={handleExpandWithAi} onTogglePublic={handleTogglePublic} />
         ) : (
           <>
             <Link href="/dashboard" className="mb-6 inline-flex items-center gap-2 text-xs font-medium text-slate-500 transition hover:text-slate-800">
@@ -723,13 +983,74 @@ function NotesDashboardContent() {
               <form onSubmit={handleCreate} className="mb-8 rounded-2xl border border-indigo-100 bg-white p-5 shadow-sm sm:p-7">
                 <div className="mb-5 flex items-start justify-between gap-4">
                   <div>
-                    <h2 className="text-base font-semibold text-slate-800">Make a new set of notes</h2>
-                    <p className="mt-1 text-xs leading-5 text-slate-400">AI will organize your file into sections, key points, and terms.</p>
+                    <h2 className="text-base font-semibold text-slate-800">{createMode === "manual" ? "Write notes manually" : "Make a new set of notes"}</h2>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">{createMode === "manual" ? "Enter the sections, examples, takeaways, and terms you want to keep." : "AI will organize your file into sections, key points, and terms."}</p>
                   </div>
                   <button type="button" onClick={() => { setCreateOpen(false); setFile(null); setPageError(""); }} aria-label="Close upload form" className="grid size-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
                     <X size={16} />
                   </button>
                 </div>
+                <div className="mb-5 grid grid-cols-2 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="How to create notes">
+                  <button type="button" role="tab" aria-selected={createMode === "upload"} onClick={() => { setCreateMode("upload"); setPageError(""); }} className={`h-9 rounded-lg text-xs font-semibold transition ${createMode === "upload" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                    Upload and organize
+                  </button>
+                  <button type="button" role="tab" aria-selected={createMode === "manual"} onClick={() => { setCreateMode("manual"); setPageError(""); }} className={`h-9 rounded-lg text-xs font-semibold transition ${createMode === "manual" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                    Write manually
+                  </button>
+                </div>
+                {createMode === "manual" ? (
+                  <div className="space-y-5">
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-semibold text-slate-700">Note title <span className="text-rose-500">*</span></span>
+                      <input value={manualTitle} onChange={(event) => setManualTitle(event.target.value)} maxLength={120} required placeholder="e.g. Cell Biology Review" className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-sm text-slate-800 outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-50" />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-semibold text-slate-700">Summary</span>
+                      <textarea value={manualSummary} onChange={(event) => setManualSummary(event.target.value)} maxLength={5000} rows={3} placeholder="A short overview of these notes…" className="w-full resize-y rounded-xl border border-slate-200 p-3.5 text-sm leading-6 text-slate-700 outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-50" />
+                    </label>
+
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-xs font-semibold text-slate-800">Sections <span className="text-rose-500">*</span></h3>
+                          <p className="mt-1 text-[10px] text-slate-400">Each section needs a heading and content. Examples are optional.</p>
+                        </div>
+                        <button type="button" onClick={() => setManualSections((current) => [...current, { heading: "", content: "", examples: [] }])} disabled={manualSections.length >= 100} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-indigo-100 px-3 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">
+                          <Plus size={13} /> Add section
+                        </button>
+                      </div>
+                      {manualSections.map((section, index) => (
+                        <section key={index} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                          <div className="mb-3 flex items-center justify-between">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Section {index + 1}</span>
+                            {manualSections.length > 1 && <button type="button" onClick={() => setManualSections((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove section ${index + 1}`} className="grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-white hover:text-rose-600"><Trash2 size={14} /></button>}
+                          </div>
+                          <input value={section.heading} onChange={(event) => setManualSections((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, heading: event.target.value } : item))} maxLength={160} placeholder="Section heading" aria-label={`Section ${index + 1} heading`} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-300" />
+                          <textarea value={section.content} onChange={(event) => setManualSections((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, content: event.target.value } : item))} maxLength={20000} rows={5} placeholder="Write the details for this section. Supports paragraphs, bullets, and **bold** text…" aria-label={`Section ${index + 1} content`} className="mt-2 w-full resize-y rounded-lg border border-slate-200 bg-white p-3 text-xs leading-6 text-slate-700 outline-none focus:border-indigo-300" />
+                          <textarea value={(section.examples ?? []).join("\n")} onChange={(event) => setManualSections((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, examples: event.target.value.split("\n") } : item))} rows={2} placeholder="Optional examples (one per line)" aria-label={`Section ${index + 1} examples`} className="mt-2 w-full resize-y rounded-lg border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-700 outline-none focus:border-indigo-300" />
+                        </section>
+                      ))}
+                    </div>
+
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-semibold text-slate-700">Key takeaways</span>
+                      <textarea value={manualTakeaways} onChange={(event) => setManualTakeaways(event.target.value)} rows={3} placeholder="One takeaway per line" className="w-full resize-y rounded-xl border border-slate-200 p-3 text-xs leading-5 text-slate-700 outline-none focus:border-indigo-300" />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-semibold text-slate-700">Key terms</span>
+                      <textarea value={manualTerms} onChange={(event) => setManualTerms(event.target.value)} rows={3} placeholder={"One per line, separated by | (e.g. Mitosis | Cell division that produces two daughter cells)"} className="w-full resize-y rounded-xl border border-slate-200 p-3 text-xs leading-5 text-slate-700 outline-none focus:border-indigo-300" />
+                      <span className="mt-1 block text-[10px] text-slate-400">Lines without a term and definition separated by | are skipped.</span>
+                    </label>
+                    {pageError && <p role="alert" className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-700">{pageError}</p>}
+                    <div className="flex justify-end border-t border-slate-100 pt-4">
+                      <button type="submit" disabled={saving} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
+                        {saving ? <LoaderCircle size={14} className="animate-spin" /> : <Check size={14} />}
+                        {saving ? "Saving notes…" : "Save notes"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
                 <input ref={inputRef} type="file" accept={ACCEPTED} onChange={handleFileChange} className="sr-only" aria-label="Choose a file to make notes from" />
                 {file ? (
                   <div className="flex items-center gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
@@ -769,6 +1090,8 @@ function NotesDashboardContent() {
                       Create notes
                     </button>
                   </div>
+                )}
+                  </>
                 )}
               </form>
             )}
