@@ -20,6 +20,10 @@ function isValidDeck(value: unknown): value is Deck {
     deck.title.trim().length > 0 &&
     deck.title.length <= 100 &&
     typeof deck.description === "string" &&
+    (deck.category === undefined ||
+      (typeof deck.category === "string" &&
+        Boolean(deck.category.trim()) &&
+        deck.category.trim().length <= 40)) &&
     ["image", "pdf", "docx", "pptx", "text", "anki"].includes(String(deck.sourceType)) &&
     typeof deck.cards === "object" &&
     deck.cards !== null &&

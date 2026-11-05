@@ -1,5 +1,5 @@
 import { getAdminDatabase } from "@/lib/firebase-admin";
-import type { StudyNote } from "@/lib/notes";
+import { isValidNoteId, type StudyNote } from "@/lib/notes";
 
 export async function GET(
   _request: Request,
@@ -7,7 +7,7 @@ export async function GET(
 ) {
   try {
     const { ownerUid, noteId } = await context.params;
-    if (!ownerUid || /[.#$\[\]/]/.test(ownerUid) || !/^[a-f0-9]{32}$/.test(noteId)) {
+    if (!ownerUid || /[.#$\[\]/]/.test(ownerUid) || !isValidNoteId(noteId)) {
       return Response.json({ error: "That public note link is not valid." }, { status: 400 });
     }
 

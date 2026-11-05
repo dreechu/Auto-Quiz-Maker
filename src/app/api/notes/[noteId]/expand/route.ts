@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { getAdminDatabase } from "@/lib/firebase-admin";
+import { isValidNoteId } from "@/lib/notes";
 import type { NoteKeyTerm, NoteSection, StudyNote } from "@/lib/notes";
 import {
   ensureUserProfile,
@@ -95,8 +96,8 @@ export async function POST(request: Request, { params }: RouteContext) {
   }
 
   const { noteId } = await params;
-  if (!/^[a-f0-9]{32}$/.test(noteId)) {
-    return Response.json({ error: "This note could not be found." }, { status: 404 });
+  if (!isValidNoteId(noteId)) {
+    return Response.json({ error: "This note ID is invalid." }, { status: 400 });
   }
   if (!process.env.GEMINI_API_KEY) {
     return Response.json({ error: "AI notes expansion is not configured yet." }, { status: 503 });

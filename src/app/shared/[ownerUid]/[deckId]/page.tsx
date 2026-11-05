@@ -23,8 +23,10 @@ import {
   Timer,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
+import { useAuth } from "@/context/AuthContext";
 import type { CardStatus, Deck, Flashcard } from "@/lib/flashcards";
-import { getRelatedDistractors } from "@/lib/multipleChoice";
+import { getRelatedDistractors, normalizeAnswer } from "@/lib/multipleChoice";
+import { useAiDistractors } from "@/lib/useAiDistractors";
 
 type SharedDeck = Deck & { id: string };
 type SharedCard = Flashcard & { id: string; status: CardStatus };
@@ -39,9 +41,21 @@ const DEFAULT_BREAK_MINUTES = 5;
 const MAX_FOCUS_MINUTES = 180;
 const MAX_BREAK_MINUTES = 60;
 
-function getAnswerOptions(card: SharedCard, cards: SharedCard[]): AnswerOption[] {
+function getAnswerOptions(
+  card: SharedCard,
+  cards: SharedCard[],
+  generatedDistractors: string[],
+): AnswerOption[] {
   const correct = card.answer.trim();
-  const answers = getRelatedDistractors(card, cards);
+  const seenAnswers = new Set([normalizeAnswer(correct)]);
+  const answers = [...getRelatedDistractors(card, cards), ...generatedDistractors]
+    .filter((answer) => {
+      const normalized = normalizeAnswer(answer);
+      if (!normalized || seenAnswers.has(normalized)) return false;
+      seenAnswers.add(normalized);
+      return true;
+    })
+    .slice(0, 3);
   const options = [{ answer: correct, isCorrect: true }, ...answers.map((answer) => ({ answer, isCorrect: false }))];
   let seed = 0;
   for (const char of card.id) seed = (Math.imul(seed, 31) + char.charCodeAt(0)) >>> 0;
@@ -55,6 +69,7 @@ function getAnswerOptions(card: SharedCard, cards: SharedCard[]): AnswerOption[]
 
 function SharedDeckContent() {
   const { ownerUid, deckId } = useParams<{ ownerUid: string; deckId: string }>();
+  const { user } = useAuth();
   const [deck, setDeck] = useState<SharedDeck | null>(null);
   const [ownerName, setOwnerName] = useState("");
   const [loading, setLoading] = useState(true);
@@ -161,9 +176,19 @@ function SharedDeckContent() {
     [allCards, filter, formatFilter],
   );
   const card = queue[index];
-  const options = useMemo(
-    () => (card ? getAnswerOptions(card, allCards) : []),
+  const relatedDistractors = useMemo(
+    () => (card ? getRelatedDistractors(card, allCards) : []),
     [card, allCards],
+  );
+  const aiChoices = useAiDistractors(
+    card,
+    relatedDistractors,
+    studyMode === "multiple-choice",
+    user,
+  );
+  const options = useMemo(
+    () => (card ? getAnswerOptions(card, allCards, aiChoices.distractors) : []),
+    [card, allCards, aiChoices.distractors],
   );
   const selectedOption = options.find(
     (option) =>
@@ -345,7 +370,7 @@ function SharedDeckContent() {
                       <button type="button" role="tab" aria-selected={studyMode === "flashcards"} onClick={() => { setStudyMode("flashcards"); resetCardView(); }} className={`rounded-lg px-3 py-2 text-[11px] font-semibold ${studyMode === "flashcards" ? "bg-indigo-50 text-indigo-700" : "text-slate-500"}`}>
                         Flashcards
                       </button>
-                      <button type="button" role="tab" aria-selected={studyMode === "multiple-choice"} onClick={() => { setStudyMode("multiple-choice"); resetCardView(); }} disabled={new Set(allCards.map((item) => item.answer.trim().toLocaleLowerCase())).size < 2} className={`rounded-lg px-3 py-2 text-[11px] font-semibold disabled:opacity-40 ${studyMode === "multiple-choice" ? "bg-indigo-50 text-indigo-700" : "text-slate-500"}`}>
+                      <button type="button" role="tab" aria-selected={studyMode === "multiple-choice"} onClick={() => { setStudyMode("multiple-choice"); resetCardView(); }} className={`rounded-lg px-3 py-2 text-[11px] font-semibold ${studyMode === "multiple-choice" ? "bg-indigo-50 text-indigo-700" : "text-slate-500"}`}>
                         Multiple choice
                       </button>
                     </div>
@@ -477,13 +502,27 @@ function SharedDeckContent() {
                             <span className="whitespace-pre-wrap">{option.answer}</span>
                           </button>
                         );
-                      }) : (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-center">
-                          <p className="text-xs leading-5 text-amber-800">There aren’t enough related answer choices in this deck for this question.</p>
-                          <button type="button" onClick={() => { setStudyMode("flashcards"); resetCardView(); }} className="mt-2 text-xs font-semibold text-indigo-700 underline underline-offset-2">Switch to flashcards</button>
-                        </div>
-                      )}
+                      }) : null}
                     </div>
+                    {options.length < 4 && (
+                      <div aria-live="polite" className="mx-auto mt-3 max-w-xl text-center text-xs text-slate-500">
+                        {aiChoices.isGenerating ? (
+                          <span className="inline-flex items-center gap-2">
+                            <LoaderCircle size={14} className="animate-spin text-indigo-500" />
+                            Generating additional answer choices…
+                          </span>
+                        ) : aiChoices.error ? (
+                          <p className="text-amber-800">
+                            {aiChoices.error}{" "}
+                            {aiChoices.error.startsWith("Sign in") ? (
+                              <Link href="/login" className="font-semibold underline underline-offset-2">Sign in</Link>
+                            ) : (
+                              <button type="button" onClick={aiChoices.retry} className="font-semibold underline underline-offset-2">Try again</button>
+                            )}
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
                     {selectedOption && <p aria-live="polite" className={`mx-auto mt-4 max-w-xl rounded-xl px-4 py-3 text-center text-sm font-medium ${selectedOption.isCorrect ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>{selectedOption.isCorrect ? "That’s right!" : `Not quite. The answer is: ${card.answer}`}</p>}
                     {card.hint && <button type="button" onClick={() => setShowHint((current) => !current)} className="mx-auto mt-4 flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-[11px] font-medium text-amber-700 hover:bg-amber-50"><Lightbulb size={14} />{showHint ? "Hide hint" : "Show hint"}</button>}
                     {showHint && card.hint && <p className="mx-auto mt-2 max-w-xl rounded-xl bg-amber-50 px-4 py-3 text-center text-xs leading-5 text-amber-800">{card.hint}</p>}

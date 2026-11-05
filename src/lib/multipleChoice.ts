@@ -43,7 +43,7 @@ function getCardTerms(card: MultipleChoiceCard) {
   return terms;
 }
 
-function normalizeAnswer(answer: string) {
+export function normalizeAnswer(answer: string) {
   return answer
     .toLocaleLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")

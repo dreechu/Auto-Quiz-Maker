@@ -23,10 +23,11 @@ import {
   Trash2,
 } from "lucide-react";
 import { AuthGate } from "@/components/AuthGate";
+import { CategorySelect } from "@/components/CategorySelect";
 import { Navbar } from "@/components/Navbar";
 import { FEATURE_FLAGS } from "@/lib/featureFlags";
 import { useAuth } from "@/context/AuthContext";
-import { deleteDeck, getStudyInsights, setDeckPublic, subscribeToDecks, type DeckWithId, type StudyInsights } from "@/lib/db";
+import { deleteDeck, getStudyInsights, saveDeck, setDeckPublic, subscribeToDecks, type DeckWithId, type StudyInsights } from "@/lib/db";
 import { PLAN_LABELS, PLAN_LIMITS } from "@/lib/plans";
 import type { SourceType } from "@/lib/flashcards";
 
@@ -49,10 +50,13 @@ function DashboardContent() {
   const [search, setSearch] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
+  const [categorySavingId, setCategorySavingId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
+  const [categoryError, setCategoryError] = useState("");
   const [insights, setInsights] = useState<StudyInsights | null>(null);
   const [insightsError, setInsightsError] = useState("");
   const [topicFilter, setTopicFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [formatFilter, setFormatFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [now, setNow] = useState(0);
@@ -126,6 +130,8 @@ function DashboardContent() {
   );
   const dueDecks = deckStats.filter((item) => item.dueCount > 0);
   const topics = [...new Set(decks.flatMap((deck) => deck.tags ?? []))].sort((a, b) => a.localeCompare(b));
+  const categories = [...new Set(decks.flatMap((deck) => deck.category ? [deck.category] : []))]
+    .sort((a, b) => a.localeCompare(b));
   const practiceCards = deckStats
     .flatMap((item) => item.practiceCards)
     .sort((a, b) => b.lapses - a.lapses)
@@ -137,11 +143,14 @@ function DashboardContent() {
           const query = search.trim().toLocaleLowerCase();
           const matchesSearch =
             !query ||
-            [deck.title, deck.description, ...(deck.tags ?? [])]
+            [deck.title, deck.description, deck.category ?? "", ...(deck.tags ?? [])]
               .join(" ")
               .toLocaleLowerCase()
               .includes(query);
           const matchesTopic = topicFilter === "all" || (deck.tags ?? []).includes(topicFilter);
+          const matchesCategory =
+            categoryFilter === "all" ||
+            (categoryFilter === "uncategorized" ? !deck.category : deck.category === categoryFilter.slice("category:".length));
           const matchesFormat =
             formatFilter === "all" ||
             cards.some((card) => (card.format ?? "identification") === formatFilter);
@@ -150,10 +159,10 @@ function DashboardContent() {
             (statusFilter === "due" && dueCount > 0) ||
             (statusFilter === "learning" && cards.some((card) => card.status === "learning" || card.status === "new")) ||
             (statusFilter === "mastered" && cards.length > 0 && cards.every((card) => card.status === "mastered"));
-          return matchesSearch && matchesTopic && matchesFormat && matchesStatus;
+          return matchesSearch && matchesTopic && matchesCategory && matchesFormat && matchesStatus;
         })
         .map(({ deck }) => deck),
-    [deckStats, search, topicFilter, formatFilter, statusFilter],
+    [deckStats, search, topicFilter, categoryFilter, formatFilter, statusFilter],
   );
   const firstName = user?.displayName?.split(" ")[0] || user?.email?.split("@")[0] || "there";
 
@@ -186,6 +195,7 @@ function DashboardContent() {
     ) {
       return;
     }
+
     setSharingId(deck.id);
     setError("");
     setToast("");
@@ -212,6 +222,28 @@ function DashboardContent() {
       );
     } finally {
       setSharingId(null);
+    }
+  }
+
+  async function handleSetCategory(deck: DeckWithId, category: string | null) {
+    if (!user || categorySavingId) return;
+    setCategorySavingId(deck.id);
+    setCategoryError("");
+    try {
+      await saveDeck(user.uid, deck.id, { ...deck, category: category ?? undefined });
+      setToast(category
+        ? `“${deck.title}” added to ${category}.`
+        : `“${deck.title}” removed from its category.`);
+      window.setTimeout(() => setToast(""), 3500);
+    } catch (categorySaveError) {
+      console.error("Could not change the deck category.", categorySaveError);
+      setCategoryError(
+        categorySaveError instanceof Error
+          ? categorySaveError.message
+          : "That category couldn’t be saved. Please try again.",
+      );
+    } finally {
+      setCategorySavingId(null);
     }
   }
 
@@ -399,6 +431,14 @@ function DashboardContent() {
           </div>
           <div className="mb-4 flex flex-wrap gap-2">
             <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-medium text-slate-500">
+              Category
+              <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} aria-label="Filter by category" className="max-w-36 bg-transparent text-xs font-semibold text-slate-700 outline-none">
+                <option value="all">All categories</option>
+                <option value="uncategorized">Uncategorized</option>
+                {categories.map((category) => <option key={category} value={`category:${category}`}>{category}</option>)}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-medium text-slate-500">
               Format
               <select value={formatFilter} onChange={(event) => setFormatFilter(event.target.value)} aria-label="Filter by card format" className="max-w-36 bg-transparent text-xs font-semibold text-slate-700 outline-none">
                 <option value="all">All formats</option>
@@ -425,6 +465,8 @@ function DashboardContent() {
             )}
           </AnimatePresence>
 
+          {categoryError && <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">{categoryError}</p>}
+
           {error ? (
             <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">{error}</div>
           ) : loading ? (
@@ -440,14 +482,17 @@ function DashboardContent() {
                   index={index}
                   deleting={deletingId === deck.id}
                   sharing={sharingId === deck.id}
+                  categorySaving={categorySavingId === deck.id}
+                  categories={categories}
                   onDelete={() => handleDelete(deck)}
                   onToggleSharing={() => void handleToggleSharing(deck)}
+                  onSetCategory={(category) => void handleSetCategory(deck, category)}
                 />
               ))}
             </div>
           ) : decks.length ? (
             <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
-              <p className="text-sm font-semibold text-slate-700">No decks match “{search}”</p>
+              <p className="text-sm font-semibold text-slate-700">{search ? `No decks match “${search}”` : "No decks match your filters"}</p>
               <p className="mt-1 text-xs text-slate-400">Try changing your search or filters.</p>
             </div>
           ) : (
@@ -492,7 +537,7 @@ function InsightValue({ icon, label, value }: { icon: React.ReactNode; label: st
   );
 }
 
-function DeckCard({ deck, index, deleting, sharing, onDelete, onToggleSharing }: { deck: DeckWithId; index: number; deleting: boolean; sharing: boolean; onDelete: () => void; onToggleSharing: () => void }) {
+function DeckCard({ deck, index, deleting, sharing, categorySaving, categories, onDelete, onToggleSharing, onSetCategory }: { deck: DeckWithId; index: number; deleting: boolean; sharing: boolean; categorySaving: boolean; categories: string[]; onDelete: () => void; onToggleSharing: () => void; onSetCategory: (category: string | null) => void }) {
   const visual = {
     pdf: { label: "PDF", icon: FileText, tint: "bg-rose-50 text-rose-700" },
     image: { label: "Photo", icon: FileImage, tint: "bg-violet-50 text-violet-700" },
@@ -526,6 +571,14 @@ function DeckCard({ deck, index, deleting, sharing, onDelete, onToggleSharing }:
           {deck.tags.length > 3 && <span className="px-1 py-1 text-[9px] text-slate-400">+{deck.tags.length - 3}</span>}
         </div>
       )}
+      <div className="relative z-10 mt-3">
+        <CategorySelect
+          value={deck.category}
+          categories={categories}
+          disabled={categorySaving || deleting || sharing}
+          onChange={onSetCategory}
+        />
+      </div>
       <div className="relative mt-5 flex items-center justify-between text-[11px] text-slate-500 pointer-events-none">
         <span>{deck.cardCount} {deck.cardCount === 1 ? "card" : "cards"}</span>
         <span>{relativeDate(deck.createdAt)}</span>

@@ -30,6 +30,7 @@ export type Deck = {
   createdAt: number;
   updatedAt: number;
   isPublic?: boolean;
+  category?: string;
   tags?: string[];
   cards: Record<string, Flashcard>;
 };

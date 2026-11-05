@@ -1,6 +1,6 @@
 import { getAdminDatabase } from "@/lib/firebase-admin";
 import { verifyRequestUser } from "@/lib/server-auth";
-import type { StudyNote } from "@/lib/notes";
+import { isValidNoteId, type StudyNote } from "@/lib/notes";
 
 type RouteContext = { params: Promise<{ noteId: string }> };
 
@@ -11,8 +11,8 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   }
 
   const { noteId } = await params;
-  if (!/^[a-f0-9]{32}$/.test(noteId)) {
-    return Response.json({ error: "This note could not be found." }, { status: 404 });
+  if (!isValidNoteId(noteId)) {
+    return Response.json({ error: "This note ID is invalid." }, { status: 400 });
   }
 
   try {
@@ -23,13 +23,15 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       title?: unknown;
       isPublic?: unknown;
       appendSections?: unknown;
+      category?: unknown;
     };
     if (
       body.title === undefined &&
       body.isPublic === undefined &&
-      body.appendSections === undefined
+      body.appendSections === undefined &&
+      body.category === undefined
     ) {
-      return Response.json({ error: "Choose note content, a title, or a sharing setting to update." }, { status: 400 });
+      return Response.json({ error: "Choose note content, a title, a category, or a sharing setting to update." }, { status: 400 });
     }
     if (body.title !== undefined && (
       typeof body.title !== "string" || !body.title.trim() || body.title.trim().length > 120
@@ -38,6 +40,13 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     }
     if (body.isPublic !== undefined && typeof body.isPublic !== "boolean") {
       return Response.json({ error: "Choose whether this note should be public." }, { status: 400 });
+    }
+    if (
+      body.category !== undefined &&
+      body.category !== null &&
+      (typeof body.category !== "string" || !body.category.trim() || body.category.trim().length > 40)
+    ) {
+      return Response.json({ error: "Categories must be between 1 and 40 characters." }, { status: 400 });
     }
     const appendedSections: StudyNote["sections"] = [];
     if (body.appendSections !== undefined) {
@@ -70,6 +79,62 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
     const database = getAdminDatabase();
     const noteRef = database.ref(`notes/${identity.uid}/${noteId}`);
+    if (
+      body.category !== undefined &&
+      body.isPublic === undefined &&
+      title === undefined &&
+      appendedSections.length === 0
+    ) {
+      const snapshot = await noteRef.get();
+      if (!snapshot.exists()) {
+        return Response.json({ error: "This note could not be found." }, { status: 404 });
+      }
+
+      const note = snapshot.val() as StudyNote;
+      const category = typeof body.category === "string" ? body.category.trim() : null;
+      const updatedAt = Date.now();
+      await noteRef.update({ category, updatedAt });
+
+      const updatedNote: StudyNote = { ...note, updatedAt };
+      if (category) updatedNote.category = category;
+      else delete updatedNote.category;
+      return Response.json({ note: { ...updatedNote, id: noteId } });
+    }
+
+    if (
+      body.isPublic !== undefined &&
+      title === undefined &&
+      appendedSections.length === 0 &&
+      body.category === undefined
+    ) {
+      const snapshot = await noteRef.get();
+      if (!snapshot.exists()) {
+        return Response.json({ error: "This note could not be found." }, { status: 404 });
+      }
+
+      const existingNote = snapshot.val() as StudyNote;
+      const updatedAt = Date.now();
+      const updatedNote = { ...existingNote, isPublic: body.isPublic, updatedAt };
+      const ownerName = (await database.ref(`users/${identity.uid}/profile/displayName`).get()).val();
+      await database.ref().update({
+        [`notes/${identity.uid}/${noteId}/isPublic`]: body.isPublic,
+        [`notes/${identity.uid}/${noteId}/updatedAt`]: updatedAt,
+        [`publicNotes/${identity.uid}_${noteId}`]: body.isPublic
+          ? {
+              id: noteId,
+              ownerUid: identity.uid,
+              ownerName: typeof ownerName === "string" && ownerName.trim() ? ownerName : "Recall learner",
+              title: updatedNote.title,
+              summary: updatedNote.summary,
+              sourceType: updatedNote.sourceType,
+              sectionCount: updatedNote.sections.length,
+              updatedAt,
+            }
+          : null,
+      });
+      return Response.json({ note: { ...updatedNote, id: noteId } });
+    }
+
     const result = await noteRef.transaction((current) => {
       if (!current) return;
       return {
@@ -79,6 +144,9 @@ export async function PATCH(request: Request, { params }: RouteContext) {
           ? { sections: [...((current.sections ?? []) as StudyNote["sections"]), ...appendedSections] }
           : {}),
         ...(body.isPublic === undefined ? {} : { isPublic: body.isPublic }),
+        ...(body.category === undefined
+          ? {}
+          : { category: typeof body.category === "string" ? body.category.trim() : null }),
         updatedAt: Date.now(),
       };
     });
@@ -106,8 +174,8 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     });
     return Response.json({ note: { ...note, id: noteId } });
   } catch (error) {
-    console.error("Could not rename a saved note.", error);
-    return Response.json({ error: "That note couldn’t be renamed. Please try again." }, { status: 500 });
+    console.error("Could not update a saved note.", error);
+    return Response.json({ error: "That note couldn’t be updated. Please try again." }, { status: 500 });
   }
 }
 
@@ -118,8 +186,8 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   }
 
   const { noteId } = await params;
-  if (!/^[a-f0-9]{32}$/.test(noteId)) {
-    return Response.json({ error: "This note could not be found." }, { status: 404 });
+  if (!isValidNoteId(noteId)) {
+    return Response.json({ error: "This note ID is invalid." }, { status: 400 });
   }
 
   try {

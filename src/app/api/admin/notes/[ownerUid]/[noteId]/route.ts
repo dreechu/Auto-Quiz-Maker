@@ -1,5 +1,6 @@
 import { getAdminDatabase } from "@/lib/firebase-admin";
 import { verifyRequestUser } from "@/lib/server-auth";
+import { isValidNoteId } from "@/lib/notes";
 
 export async function DELETE(
   request: Request,
@@ -18,7 +19,7 @@ export async function DELETE(
     }
 
     const { ownerUid, noteId } = await context.params;
-    if (!ownerUid || /[.#$\[\]/]/.test(ownerUid) || !/^[a-f0-9]{32}$/.test(noteId)) {
+    if (!ownerUid || /[.#$\[\]/]/.test(ownerUid) || !isValidNoteId(noteId)) {
       return Response.json({ error: "That note reference is not valid." }, { status: 400 });
     }
 

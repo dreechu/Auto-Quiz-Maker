@@ -13,6 +13,7 @@ import {
   FileImage,
   FileText,
   FileUp,
+  Folder,
   Globe2,
   Lightbulb,
   LoaderCircle,
@@ -26,11 +27,12 @@ import {
   X,
 } from "lucide-react";
 import { AuthGate } from "@/components/AuthGate";
+import { CategorySelect } from "@/components/CategorySelect";
 import { Navbar } from "@/components/Navbar";
 import { TaskProgress } from "@/components/TaskProgress";
 import { useAuth } from "@/context/AuthContext";
 import { MAX_UPLOAD_BYTES } from "@/lib/api-limits";
-import { deleteNote, getNotes, renameNote, setNotePublic, type SavedNote } from "@/lib/db";
+import { deleteNote, getNotes, renameNote, setNoteCategory, setNotePublic, type SavedNote } from "@/lib/db";
 import type { NoteKeyTerm, NoteSection } from "@/lib/notes";
 
 const MAX_FILE_BYTES = MAX_UPLOAD_BYTES;
@@ -396,7 +398,7 @@ function NoteReader({
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{note.title}</h1>
             <p className="mt-2 break-words text-xs text-slate-400">From {note.sourceName}</p>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="flex w-full min-w-0 flex-wrap gap-2 sm:w-auto">
             <button type="button" onClick={() => void toggleSharing()} disabled={sharing} className={"inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition disabled:opacity-50 " + (note.isPublic ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50")}>
               {sharing ? <LoaderCircle size={14} className="animate-spin" /> : <Globe2 size={14} />}
               {note.isPublic ? "Make private" : "Publish"}
@@ -674,14 +676,28 @@ function NotesDashboardContent() {
   }, [userUid]);
 
   const selectedNote = notes.find((note) => note.id === selectedNoteId) ?? null;
+  const categories = [...new Set(notes.flatMap((note) => note.category ? [note.category] : []))]
+    .sort((a, b) => a.localeCompare(b));
   const filteredNotes = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
-    if (!query) return notes;
     return notes.filter((note) =>
-      [note.title, note.sourceName, note.summary, ...note.keyTerms.map((term) => term.term)]
-        .join(" ").toLocaleLowerCase().includes(query),
+      (!query ||
+        [note.title, note.sourceName, note.summary, note.category ?? "", ...note.keyTerms.map((term) => term.term)]
+          .join(" ").toLocaleLowerCase().includes(query)),
     );
   }, [notes, search]);
+  const noteGroups = [
+    ...categories.map((category) => ({
+      category,
+      name: category,
+      notes: filteredNotes.filter((note) => note.category === category),
+    })),
+    {
+      category: null,
+      name: "Uncategorized",
+      notes: filteredNotes.filter((note) => !note.category),
+    },
+  ].filter((group) => group.notes.length > 0);
 
   function chooseFile(nextFile?: File) {
     if (!nextFile) return;
@@ -926,6 +942,21 @@ function NotesDashboardContent() {
     }
   }
 
+  async function handleSetCategory(note: SavedNote, category: string | null) {
+    if (!user || actionNoteId) return;
+    setActionNoteId(note.id);
+    setPageError("");
+    try {
+      const result = await setNoteCategory(user.uid, note.id, category);
+      setNotes((current) => current.map((item) => item.id === note.id ? result.note : item));
+    } catch (error) {
+      console.error("Could not change the note category.", error);
+      setPageError(error instanceof Error ? error.message : "That category couldn’t be saved.");
+    } finally {
+      setActionNoteId(null);
+    }
+  }
+
   async function handleDelete(note: SavedNote) {
     if (!user || !window.confirm("Delete \"" + note.title + "\"? This cannot be undone.")) return;
     setActionNoteId(note.id);
@@ -1096,17 +1127,31 @@ function NotesDashboardContent() {
               </form>
             )}
 
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-800">All notes <span className="ml-1 font-normal text-slate-400">{notes.length}</span></h2>
+            <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
+                    <Folder size={17} />
+                  </span>
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-800">
+                      Notes by category
+                      <span className="ml-2 font-normal text-slate-400">{notes.length}</span>
+                    </h2>
+                    <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                      Your notes are grouped into categories below.
+                    </p>
+                  </div>
+                </div>
+                {notes.length > 0 && (
+                  <label className="relative block w-full sm:max-w-64">
+                    <span className="sr-only">Search notes</span>
+                    <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search notes…" className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs text-slate-700 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-50" />
+                  </label>
+                )}
               </div>
-              {notes.length > 0 && (
-                <label className="relative block w-full sm:w-64">
-                  <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search notes…" className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-xs text-slate-700 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:ring-4 focus:ring-indigo-50" />
-                </label>
-              )}
-            </div>
+            </section>
 
             {loading ? (
               <div className="flex min-h-48 items-center justify-center gap-3 text-sm text-slate-500">
@@ -1116,44 +1161,72 @@ function NotesDashboardContent() {
             ) : loadError ? (
               <div role="alert" className="rounded-2xl border border-rose-100 bg-rose-50 p-6 text-sm text-rose-700">{loadError}</div>
             ) : filteredNotes.length ? (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredNotes.map((note) => (
-                  <article key={note.id} className="group flex min-h-64 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md">
-                    <button type="button" onClick={() => { setSelectedNoteId(note.id); setPageError(""); }} className="flex flex-1 flex-col p-5 text-left">
-                      <div className="mb-4 flex w-full items-start justify-between gap-3">
-                        <span className={"grid size-11 place-items-center rounded-xl " + (["png", "jpg", "jpeg", "webp"].includes(note.sourceType) ? "bg-emerald-50 text-emerald-700" : "bg-indigo-50 text-indigo-700")}>
-                          {["png", "jpg", "jpeg", "webp"].includes(note.sourceType) ? <FileImage size={20} /> : <FileText size={20} />}
-                        </span>
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{FILE_LABELS[note.sourceType] ?? note.sourceType}</span>
-                      </div>
-                      <h3 className="line-clamp-2 text-base font-semibold leading-6 text-slate-800 group-hover:text-indigo-700">{note.title}</h3>
-                      <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-500">{note.summary || note.sections[0]?.content || note.sourceName}</p>
-                      <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 pt-5 text-[10px] text-slate-400">
-                        <span className="inline-flex items-center gap-1"><BookOpenText size={12} />{note.sections.length} sections</span>
-                        {note.keyTerms.length > 0 && <span className="inline-flex items-center gap-1"><Tag size={11} />{note.keyTerms.length} terms</span>}
-                        <span className="inline-flex items-center gap-1"><Clock3 size={11} />{formattedDate(note.updatedAt)}</span>
-                      </div>
-                    </button>
-                    <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2.5">
-                      <p className="min-w-0 truncate pr-2 text-[10px] text-slate-400" title={note.sourceName}>{note.sourceName}</p>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <button type="button" onClick={() => void handleRename(note)} disabled={actionNoteId === note.id} aria-label="Rename note" title="Rename note" className="grid size-8 place-items-center rounded-lg text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50"><Pencil size={14} /></button>
-                        <button type="button" onClick={() => void handleTogglePublic(note).catch((error: unknown) => setPageError(error instanceof Error ? error.message : "Sharing setting couldn’t be updated."))} disabled={actionNoteId === note.id} aria-label={note.isPublic ? "Make note private" : "Publish note"} title={note.isPublic ? "Public — click to make private" : "Publish note"} className={"grid size-8 place-items-center rounded-lg transition disabled:opacity-50 " + (note.isPublic ? "text-emerald-600 hover:bg-emerald-50" : "text-slate-400 hover:bg-indigo-50 hover:text-indigo-600")}><Globe2 size={14} /></button>
-                        <button type="button" onClick={() => void handleDelete(note)} disabled={actionNoteId === note.id} aria-label="Delete note" title="Delete note" className="grid size-8 place-items-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"><Trash2 size={14} /></button>
-                        <button type="button" onClick={() => setSelectedNoteId(note.id)} aria-label="Open note" title="Open note" className="grid size-8 place-items-center rounded-lg text-indigo-600 transition hover:bg-indigo-50"><ArrowRight size={15} /></button>
-                      </div>
+              <div className="space-y-9">
+                {noteGroups.map((group) => (
+                  <section
+                    key={group.category ? `category-${group.category}` : "uncategorized"}
+                    aria-labelledby={`notes-group-${group.category ? encodeURIComponent(group.category) : "uncategorized"}`}
+                  >
+                    <div className="mb-4 flex items-center gap-2.5 border-b border-slate-200 pb-3">
+                      <span className={`grid size-8 place-items-center rounded-lg ${group.category === null ? "bg-slate-100 text-slate-500" : "bg-indigo-50 text-indigo-600"}`}>
+                        <Folder size={15} />
+                      </span>
+                      <h2 id={`notes-group-${group.category ? encodeURIComponent(group.category) : "uncategorized"}`} className="text-base font-semibold text-slate-800">
+                        {group.name}
+                      </h2>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                        {group.notes.length}
+                      </span>
                     </div>
-                  </article>
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {group.notes.map((note) => (
+                        <article key={note.id} className="group flex min-h-64 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md">
+                          <button type="button" onClick={() => { setSelectedNoteId(note.id); setPageError(""); }} className="flex flex-1 flex-col p-5 text-left">
+                            <div className="mb-4 flex w-full items-start justify-between gap-3">
+                              <span className={"grid size-11 place-items-center rounded-xl " + (["png", "jpg", "jpeg", "webp"].includes(note.sourceType) ? "bg-emerald-50 text-emerald-700" : "bg-indigo-50 text-indigo-700")}>
+                                {["png", "jpg", "jpeg", "webp"].includes(note.sourceType) ? <FileImage size={20} /> : <FileText size={20} />}
+                              </span>
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{FILE_LABELS[note.sourceType] ?? note.sourceType}</span>
+                            </div>
+                            <h3 className="line-clamp-2 text-base font-semibold leading-6 text-slate-800 group-hover:text-indigo-700">{note.title}</h3>
+                            <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-500">{note.summary || note.sections[0]?.content || note.sourceName}</p>
+                            <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 pt-5 text-[10px] text-slate-400">
+                              <span className="inline-flex items-center gap-1"><BookOpenText size={12} />{note.sections.length} sections</span>
+                              {note.keyTerms.length > 0 && <span className="inline-flex items-center gap-1"><Tag size={11} />{note.keyTerms.length} terms</span>}
+                              <span className="inline-flex items-center gap-1"><Clock3 size={11} />{formattedDate(note.updatedAt)}</span>
+                            </div>
+                          </button>
+                          <div className="space-y-2 border-t border-slate-100 px-4 py-2.5">
+                            <CategorySelect
+                              value={note.category}
+                              categories={categories}
+                              disabled={actionNoteId !== null}
+                              onChange={(category) => void handleSetCategory(note, category)}
+                            />
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="min-w-0 truncate pr-2 text-[10px] text-slate-400" title={note.sourceName}>{note.sourceName}</p>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <button type="button" onClick={() => void handleRename(note)} disabled={actionNoteId === note.id} aria-label="Rename note" title="Rename note" className="grid size-8 place-items-center rounded-lg text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50"><Pencil size={14} /></button>
+                                <button type="button" onClick={() => void handleTogglePublic(note).catch((error: unknown) => setPageError(error instanceof Error ? error.message : "Sharing setting couldn’t be updated."))} disabled={actionNoteId === note.id} aria-label={note.isPublic ? "Make note private" : "Publish note"} title={note.isPublic ? "Public — click to make private" : "Publish note"} className={"grid size-8 place-items-center rounded-lg transition disabled:opacity-50 " + (note.isPublic ? "text-emerald-600 hover:bg-emerald-50" : "text-slate-400 hover:bg-indigo-50 hover:text-indigo-600")}><Globe2 size={14} /></button>
+                                <button type="button" onClick={() => void handleDelete(note)} disabled={actionNoteId === note.id} aria-label="Delete note" title="Delete note" className="grid size-8 place-items-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"><Trash2 size={14} /></button>
+                                <button type="button" onClick={() => setSelectedNoteId(note.id)} aria-label="Open note" title="Open note" className="grid size-8 place-items-center rounded-lg text-indigo-600 transition hover:bg-indigo-50"><ArrowRight size={15} /></button>
+                              </div>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
                 ))}
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
                 <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-indigo-50 text-indigo-600"><NotebookPen size={24} /></span>
-                <h3 className="mt-4 text-base font-semibold text-slate-800">{search ? "No matching notes" : "Your notes library is empty"}</h3>
+                <h3 className="mt-4 text-base font-semibold text-slate-800">{notes.length === 0 ? "Your notes library is empty" : "No matching notes"}</h3>
                 <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500">
-                  {search ? "Try a different search or clear the search box." : "Create a set of organized study notes from a photo, PDF, presentation, or document."}
+                  {notes.length > 0 ? "Try a different search." : "Create a set of organized study notes from a photo, PDF, presentation, or document."}
                 </p>
-                {!search && (
+                {notes.length === 0 && (
                   <button type="button" onClick={startNewNote} className="mt-5 inline-flex h-10 items-center gap-2 rounded-xl bg-indigo-600 px-4 text-xs font-semibold text-white transition hover:bg-indigo-700">
                     <Plus size={15} />
                     Create your first notes

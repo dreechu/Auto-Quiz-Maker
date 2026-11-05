@@ -132,6 +132,10 @@ export async function PUT(
       deck.title.length > 100 ||
       typeof deck.description !== "string" ||
       deck.description.length > 500 ||
+      (deck.category !== undefined &&
+        (typeof deck.category !== "string" ||
+          !deck.category.trim() ||
+          deck.category.trim().length > 40)) ||
       (deck.tags !== undefined &&
         (!Array.isArray(deck.tags) ||
           deck.tags.length > 10 ||
@@ -171,6 +175,7 @@ export async function PUT(
     const updates: Record<string, unknown> = {
       [`decks/${identity.uid}/${deckId}/title`]: deck.title.trim(),
       [`decks/${identity.uid}/${deckId}/description`]: deck.description,
+      [`decks/${identity.uid}/${deckId}/category`]: deck.category?.trim() || null,
       [`decks/${identity.uid}/${deckId}/tags`]: (deck.tags ?? []).map((tag) => tag.trim()).filter(Boolean),
       [`decks/${identity.uid}/${deckId}/cards`]: deck.cards,
       [`decks/${identity.uid}/${deckId}/cardCount`]: Object.keys(deck.cards).length,

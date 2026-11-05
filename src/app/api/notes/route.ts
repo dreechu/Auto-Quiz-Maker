@@ -8,6 +8,7 @@ import {
 } from "@/lib/api-limits";
 import { extractDocumentText } from "@/lib/fileProcessors";
 import { getAdminDatabase } from "@/lib/firebase-admin";
+import { isValidNoteId } from "@/lib/notes";
 import type { NoteKeyTerm, NoteSection, StudyNote } from "@/lib/notes";
 import {
   ensureUserProfile,
@@ -263,9 +264,9 @@ async function createNote(
     }
     if (
       appendToNoteIdValue !== null &&
-      (typeof appendToNoteIdValue !== "string" || !/^[a-f0-9]{32}$/.test(appendToNoteIdValue))
+      (typeof appendToNoteIdValue !== "string" || !isValidNoteId(appendToNoteIdValue))
     ) {
-      return Response.json({ error: "This note could not be found." }, { status: 404 });
+      return Response.json({ error: "This note ID is invalid." }, { status: 400 });
     }
     const appendToNoteId = typeof appendToNoteIdValue === "string" ? appendToNoteIdValue : null;
 

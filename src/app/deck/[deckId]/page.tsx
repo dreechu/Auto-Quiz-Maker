@@ -25,7 +25,8 @@ import { useAuth } from "@/context/AuthContext";
 import { rateCard, subscribeToDeck } from "@/lib/db";
 import type { Deck, Flashcard } from "@/lib/flashcards";
 import type { ReviewRating } from "@/lib/flashcards";
-import { getRelatedDistractors } from "@/lib/multipleChoice";
+import { getRelatedDistractors, normalizeAnswer } from "@/lib/multipleChoice";
+import { useAiDistractors } from "@/lib/useAiDistractors";
 
 type StudyCard = Flashcard & { id: string };
 type CardFilter = "all" | "learning" | "due";
@@ -43,9 +44,21 @@ type AnswerOption = {
   isCorrect: boolean;
 };
 
-function getAnswerOptions(card: StudyCard, cards: StudyCard[]): AnswerOption[] {
+function getAnswerOptions(
+  card: StudyCard,
+  cards: StudyCard[],
+  generatedDistractors: string[],
+): AnswerOption[] {
   const correctAnswer = card.answer.trim();
-  const distractors = getRelatedDistractors(card, cards)
+  const seenAnswers = new Set([normalizeAnswer(correctAnswer)]);
+  const distractors = [...getRelatedDistractors(card, cards), ...generatedDistractors]
+    .filter((answer) => {
+      const normalized = normalizeAnswer(answer);
+      if (!normalized || seenAnswers.has(normalized)) return false;
+      seenAnswers.add(normalized);
+      return true;
+    })
+    .slice(0, 3)
     .map((answer) => ({ answer, isCorrect: false }));
   const options = [{ answer: correctAnswer, isCorrect: true }, ...distractors];
 
@@ -164,13 +177,20 @@ function StudyDeck() {
     [allCards, filter, questionFormat, now],
   );
   const card = queue[index];
-  const answerOptions = useMemo(
-    () => (card ? getAnswerOptions(card, allCards) : []),
+  const relatedDistractors = useMemo(
+    () => (card ? getRelatedDistractors(card, allCards) : []),
     [card, allCards],
   );
-  const canUseMultipleChoice =
-    new Set(allCards.map((item) => item.answer.trim().toLocaleLowerCase())).size >
-    1;
+  const aiChoices = useAiDistractors(
+    card,
+    relatedDistractors,
+    studyMode === "multiple-choice",
+    user,
+  );
+  const answerOptions = useMemo(
+    () => (card ? getAnswerOptions(card, allCards, aiChoices.distractors) : []),
+    [card, allCards, aiChoices.distractors],
+  );
   const selectedOption = answerOptions.find(
     (option) =>
       option.answer.toLocaleLowerCase() ===
@@ -420,11 +440,10 @@ function StudyDeck() {
                 <button type="button" role="tab" aria-selected={studyMode === "flashcards"} onClick={() => changeStudyMode("flashcards")} className={`rounded-lg px-3 py-2 text-[11px] font-semibold transition ${studyMode === "flashcards" ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:text-slate-800"}`}>
                   Flashcards
                 </button>
-                <button type="button" role="tab" aria-selected={studyMode === "multiple-choice"} onClick={() => changeStudyMode("multiple-choice")} disabled={!canUseMultipleChoice} className={`rounded-lg px-3 py-2 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${studyMode === "multiple-choice" ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:text-slate-800"}`}>
+                <button type="button" role="tab" aria-selected={studyMode === "multiple-choice"} onClick={() => changeStudyMode("multiple-choice")} className={`rounded-lg px-3 py-2 text-[11px] font-semibold transition ${studyMode === "multiple-choice" ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:text-slate-800"}`}>
                   Multiple Choice
                 </button>
               </div>
-              {!canUseMultipleChoice && <p className="self-center text-[10px] text-slate-400">Add cards with different answers to use multiple choice.</p>}
               <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm" role="tablist" aria-label="Filter question format">
                 <button type="button" role="tab" aria-selected={questionFormat === "mixed"} onClick={() => changeQuestionFormat("mixed")} className={`rounded-lg px-3 py-2 text-[11px] font-semibold transition ${questionFormat === "mixed" ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:text-slate-800"}`}>
                   Mixed ({allCards.length})
@@ -699,13 +718,27 @@ function StudyDeck() {
                         <span className="whitespace-pre-wrap">{option.answer}</span>
                       </button>
                     );
-                  }) : (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-center">
-                      <p className="text-xs leading-5 text-amber-800">There aren’t enough related answer choices in this deck for this question.</p>
-                      <button type="button" onClick={() => changeStudyMode("flashcards")} className="mt-2 text-xs font-semibold text-indigo-700 underline underline-offset-2">Switch to flashcards</button>
-                    </div>
-                  )}
+                  }) : null}
                 </div>
+                {answerOptions.length < 4 && (
+                  <div aria-live="polite" className="mx-auto mt-3 max-w-xl text-center text-xs text-slate-500">
+                    {aiChoices.isGenerating ? (
+                      <span className="inline-flex items-center gap-2">
+                        <LoaderCircle size={14} className="animate-spin text-indigo-500" />
+                        Generating additional answer choices…
+                      </span>
+                    ) : aiChoices.error ? (
+                      <p className="text-amber-800">
+                        {aiChoices.error}{" "}
+                        {aiChoices.error.startsWith("Sign in") ? (
+                          <Link href="/login" className="font-semibold underline underline-offset-2">Sign in</Link>
+                        ) : (
+                          <button type="button" onClick={aiChoices.retry} className="font-semibold underline underline-offset-2">Try again</button>
+                        )}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
                 {selectedOption && (
                   <p aria-live="polite" className={`mx-auto mt-4 max-w-xl rounded-xl px-4 py-3 text-center text-sm font-medium ${selectedOption.isCorrect ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>
                     {selectedOption.isCorrect

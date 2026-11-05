@@ -20,6 +20,7 @@ export type StudyNote = {
   keyTakeaways: string[];
   keyTerms: NoteKeyTerm[];
   isPublic?: boolean;
+  category?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -34,3 +35,11 @@ export type PublicNoteSummary = {
   sectionCount: number;
   updatedAt: number;
 };
+
+export function isValidNoteId(noteId: string): boolean {
+  return Boolean(
+    noteId &&
+    new TextEncoder().encode(noteId).length <= 768 &&
+    !/[.#$\[\]/\u0000-\u001F\u007F]/.test(noteId),
+  );
+}

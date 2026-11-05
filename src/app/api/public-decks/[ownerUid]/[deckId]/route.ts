@@ -42,10 +42,14 @@ export async function GET(
         },
       ]),
     );
+    const {
+      category: _privateCategory,
+      ...sharedDeck
+    } = deck;
     return Response.json(
       {
         deck: {
-          ...deck,
+          ...sharedDeck,
           cards: publicCards,
           cardCount: Object.keys(publicCards).length,
           masteredCount: 0,

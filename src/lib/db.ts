@@ -60,6 +60,17 @@ export async function renameNote(uid: string, noteId: string, title: string) {
   );
 }
 
+export async function setNoteCategory(uid: string, noteId: string, category: string | null) {
+  if (!auth?.currentUser || auth.currentUser.uid !== uid) {
+    throw new Error("Please sign in again before organizing this note.");
+  }
+  return authenticatedRequest<{ note: SavedNote }>(
+    `/api/notes/${encodeURIComponent(noteId)}`,
+    "PATCH",
+    { category },
+  );
+}
+
 export async function setNotePublic(uid: string, noteId: string, isPublic: boolean) {
   if (!auth?.currentUser || auth.currentUser.uid !== uid) {
     throw new Error("Please sign in again before changing this note’s sharing settings.");
